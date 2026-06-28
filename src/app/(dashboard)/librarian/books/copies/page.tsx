@@ -51,15 +51,18 @@ export default function BookCopiesPage() {
       .order("created_at", { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
 
-    const conditions: string[] = [];
     if (search) {
-      conditions.push(`barcode.ilike.%${search}%`, `book.title.ilike.%${search}%`);
+      const { data: matchingBooks } = await supabase
+        .from("books")
+        .select("id")
+        .or(`title.ilike.%${search}%,author.ilike.%${search}%`);
+      const bookIds = matchingBooks?.map((b) => b.id) || [];
+      const orParts = [`barcode.ilike.%${search}%`];
+      if (bookIds.length > 0) orParts.push(`book_id.in.(${bookIds.join(",")})`);
+      query = query.or(orParts.join(","));
     }
     if (statusFilter) {
-      conditions.push(`status.eq.${statusFilter}`);
-    }
-    if (conditions.length > 0) {
-      query = query.or(conditions.join(","));
+      query = query.eq("status", statusFilter);
     }
 
     const { data, count } = await query;

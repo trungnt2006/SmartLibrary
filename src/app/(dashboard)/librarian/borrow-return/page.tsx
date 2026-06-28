@@ -85,10 +85,9 @@ export default function BorrowReturnPage() {
     const { data, error } = await supabase
       .from("books")
       .select("*")
-      .ilike("title", `%${query}%`)
+      .or(`title.ilike.%${query}%,author.ilike.%${query}%`)
       .limit(10);
     if (error) { console.error("searchBook error:", error); toast.error("Lỗi tìm sách: " + error.message); return; }
-    console.log("searchBook result:", data?.length, data);
     setBookResults(data || []);
   }, []);
 
