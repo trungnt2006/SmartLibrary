@@ -95,6 +95,29 @@ export default function SearchPage() {
 
       if (!profile) { toast.error("Không tìm thấy thông tin độc giả"); return; }
 
+      const { data: rule } = await supabase.from("library_rules").select("value").eq("key", "max_borrow_books").single();
+      const maxBorrow = parseInt(rule?.value || "5");
+      const { data: activeRecords } = await supabase
+        .from("borrow_records")
+        .select("id")
+        .eq("reader_id", profile.id)
+        .in("status", ["active", "overdue"]);
+      const recordIds = activeRecords?.map((r) => r.id) || [];
+      let activeCount = 0;
+      if (recordIds.length > 0) {
+        const { count } = await supabase
+          .from("borrow_details")
+          .select("*", { count: "exact", head: true })
+          .in("borrow_record_id", recordIds)
+          .eq("status", "active");
+        activeCount = count || 0;
+      }
+      if (activeCount + quantity > maxBorrow) {
+        toast.error(`Bạn chỉ được mượn tối đa ${maxBorrow} cuốn. Hiện đang mượn ${activeCount} cuốn.`);
+        setSaving(false);
+        return;
+      }
+
       const { data: existing } = await supabase
         .from("borrow_requests")
         .select("id, status")

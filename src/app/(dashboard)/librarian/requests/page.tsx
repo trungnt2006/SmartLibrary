@@ -126,6 +126,34 @@ export default function RequestsPage() {
     const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", profile.user!.id).single();
     if (!librarian) { toast.error("Không xác định thủ thư"); return; }
 
+    if (item.request_type === "borrow") {
+      const { data: rule } = await supabase.from("library_rules").select("value").eq("key", "max_borrow_books").single();
+      const maxBorrow = parseInt(rule?.value || "5");
+      const { count: reqCount } = await supabase
+        .from("borrow_request_details")
+        .select("*", { count: "exact", head: true })
+        .eq("borrow_request_id", item.id);
+      const { data: activeRecords } = await supabase
+        .from("borrow_records")
+        .select("id")
+        .eq("reader_id", item.reader_id)
+        .in("status", ["active", "overdue"]);
+      const recordIds = activeRecords?.map((r) => r.id) || [];
+      let activeCount = 0;
+      if (recordIds.length > 0) {
+        const { count } = await supabase
+          .from("borrow_details")
+          .select("*", { count: "exact", head: true })
+          .in("borrow_record_id", recordIds)
+          .eq("status", "active");
+        activeCount = count || 0;
+      }
+      if (activeCount + (reqCount || 0) > maxBorrow) {
+        toast.error(`Độc giả chỉ được mượn tối đa ${maxBorrow} cuốn. Hiện đang mượn ${activeCount} cuốn.`);
+        return;
+      }
+    }
+
     const year = new Date().getFullYear();
     const isBorrow = item.request_type === "borrow";
     const code = isBorrow
