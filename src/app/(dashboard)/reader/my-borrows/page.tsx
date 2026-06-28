@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table } from "@/components/ui/table";
 import { Pagination } from "@/components/shared/pagination";
-import type { BorrowRecord } from "@/types";
+
 import { formatDate } from "@/lib/utils";
 import { BookOpen } from "lucide-react";
 
@@ -33,9 +33,9 @@ export default function MyBorrowsPage() {
     const fetchRecords = async () => {
       setLoading(true);
       const { data, count } = await supabase
-        .from("borrow_records")
-        .select("*, details:borrow_details(*, book_copy:book_copies(*, book:books(*)))", { count: "exact" })
-        .eq("reader_id", profileId)
+        .from("borrow_details")
+        .select("*, borrow_record:borrow_records!inner(*), book_copy:book_copies(*, book:books(*))", { count: "exact" })
+        .eq("borrow_record.reader_id", profileId)
         .order("created_at", { ascending: false })
         .range((page - 1) * pageSize, page * pageSize - 1);
       setRecords(data || []);
@@ -47,21 +47,17 @@ export default function MyBorrowsPage() {
 
   const columns = [
     {
-      key: "books",
+      key: "book",
       header: "Sách",
-      render: (item: any) =>
-        item.details?.map((d: any) => d.book_copy?.book?.title).join(", ") || "-",
+      render: (item: any) => item.book_copy?.book?.title || "-",
     },
-    { key: "borrow_date", header: "Ngày mượn", render: (item: any) => formatDate(item.borrow_date) },
+    { key: "borrow_date", header: "Ngày mượn", render: (item: any) => formatDate(item.borrow_record?.borrow_date) },
     { key: "due_date", header: "Hạn trả", render: (item: any) => formatDate(item.due_date) },
     { key: "status", header: "Trạng thái", render: (item: any) => <Badge status={item.status} /> },
     {
       key: "return_date",
       header: "Ngày trả",
-      render: (item: any) => {
-        const returnDate = item.details?.find((d: any) => d.return_date)?.return_date;
-        return returnDate ? formatDate(returnDate) : "-";
-      },
+      render: (item: any) => (item.return_date ? formatDate(item.return_date) : "-"),
     },
   ];
 
