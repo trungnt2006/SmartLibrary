@@ -14,9 +14,6 @@ export default function MyBorrowsPage() {
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [profileId, setProfileId] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const pageSize = 10;
   const supabase = createClient();
 
   useEffect(() => {
@@ -32,18 +29,29 @@ export default function MyBorrowsPage() {
     if (!profileId) return;
     const fetchRecords = async () => {
       setLoading(true);
-      const { data, count } = await supabase
-        .from("borrow_details")
-        .select("*, borrow_record:borrow_records!inner(*), book_copy:book_copies(*, book:books(*))", { count: "exact" })
-        .eq("borrow_record.reader_id", profileId)
-        .order("created_at", { ascending: false })
-        .range((page - 1) * pageSize, page * pageSize - 1);
-      setRecords(data || []);
-      setTotal(count || 0);
+      const { data } = await supabase
+        .from("borrow_records")
+        .select("*, details:borrow_details(*, book_copy:book_copies(*, book:books(*)))")
+        .eq("reader_id", profileId)
+        .order("created_at", { ascending: false });
+      const flattened: any[] = [];
+      for (const r of data || []) {
+        for (const d of r.details || []) {
+          flattened.push({
+            id: d.id,
+            book_copy: d.book_copy,
+            due_date: d.due_date,
+            status: d.status,
+            return_date: d.return_date,
+            borrow_date: r.borrow_date,
+          });
+        }
+      }
+      setRecords(flattened);
       setLoading(false);
     };
     fetchRecords();
-  }, [profileId, page]);
+  }, [profileId]);
 
   const columns = [
     {
@@ -51,7 +59,7 @@ export default function MyBorrowsPage() {
       header: "Sách",
       render: (item: any) => item.book_copy?.book?.title || "-",
     },
-    { key: "borrow_date", header: "Ngày mượn", render: (item: any) => formatDate(item.borrow_record?.borrow_date) },
+    { key: "borrow_date", header: "Ngày mượn", render: (item: any) => formatDate(item.borrow_date) },
     { key: "due_date", header: "Hạn trả", render: (item: any) => formatDate(item.due_date) },
     { key: "status", header: "Trạng thái", render: (item: any) => <Badge status={item.status} /> },
     {
@@ -72,7 +80,6 @@ export default function MyBorrowsPage() {
         <CardContent className="p-0">
           <Table columns={columns} data={records} keyExtractor={(item) => item.id} loading={loading} emptyMessage="Chưa có lịch sử mượn sách" />
         </CardContent>
-        <Pagination page={page} totalPages={Math.ceil(total / pageSize)} onPageChange={setPage} />
       </Card>
     </div>
   );
