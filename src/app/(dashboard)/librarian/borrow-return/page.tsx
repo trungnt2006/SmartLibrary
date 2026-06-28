@@ -82,12 +82,12 @@ export default function BorrowReturnPage() {
 
   const searchBook = useCallback(async (query: string) => {
     if (!query.trim()) { setBookResults([]); return; }
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("books")
       .select("*")
-      .eq("status", "active")
       .or(`title.ilike.%${query}%,author.ilike.%${query}%`)
       .limit(10);
+    if (error) { console.error("searchBook error:", error); toast.error("Lỗi tìm sách: " + error.message); return; }
     setBookResults(data || []);
   }, []);
 
@@ -97,12 +97,13 @@ export default function BorrowReturnPage() {
   }, [bookSearch, searchBook]);
 
   const handleSelectBook = async (book: Book, qty: number = 1) => {
-    const { data: copies } = await supabase
+    const { data: copies, error } = await supabase
       .from("book_copies")
       .select("*, book:books(title)")
       .eq("book_id", book.id)
       .eq("status", "available")
       .limit(qty);
+    if (error) { console.error("handleSelectBook error:", error); toast.error("Lỗi: " + error.message); return; }
     if (!copies || copies.length === 0) { toast.error(`"${book.title}" không còn cuốn nào có sẵn`); return; }
     setSelectedCopies([...selectedCopies, ...copies]);
     setBookSearch("");
@@ -112,12 +113,13 @@ export default function BorrowReturnPage() {
   const handleAddCopyByBarcode = async () => {
     const code = barcodeInput.trim();
     if (!code) return;
-    const { data: copy } = await supabase
+    const { data: copy, error } = await supabase
       .from("book_copies")
       .select("*, book:books(title)")
       .eq("barcode", code)
       .eq("status", "available")
       .single();
+    if (error && error.code !== "PGRST116") { console.error("barcode error:", error); toast.error("Lỗi: " + error.message); return; }
     if (!copy) { toast.error("Không tìm thấy barcode hoặc sách không có sẵn"); return; }
     if (selectedCopies.find((c) => c.id === copy.id)) { toast.error("Sách này đã có trong danh sách"); return; }
     setSelectedCopies([...selectedCopies, copy]);
