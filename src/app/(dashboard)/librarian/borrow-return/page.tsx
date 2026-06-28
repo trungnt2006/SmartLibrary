@@ -62,7 +62,7 @@ export default function BorrowReturnPage() {
   };
 
   const fetchBooks = async () => {
-    const { data } = await supabase.from("books").select("*").eq("status", "active").order("title");
+    const { data } = await supabase.from("books").select("*").order("title");
     setBooks(data || []);
   };
 
