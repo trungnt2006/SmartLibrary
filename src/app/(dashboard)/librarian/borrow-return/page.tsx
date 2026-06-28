@@ -4,14 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { Table } from "@/components/ui/table";
 import { Pagination } from "@/components/shared/pagination";
-import type { BorrowRecord, Profile, BookCopy } from "@/types";
+import type { BorrowRecord, Profile, BookCopy, Book } from "@/types";
 import { formatDate } from "@/lib/utils";
-import { Scan, BookOpen, CheckCircle, Plus, Search, X, Trash2 } from "lucide-react";
+import { Scan, BookOpen, CheckCircle, Plus, Search, X, Trash2, Barcode } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function BorrowReturnPage() {
@@ -26,8 +27,10 @@ export default function BorrowReturnPage() {
   const [readerSearch, setReaderSearch] = useState("");
   const [readerResults, setReaderResults] = useState<Profile[]>([]);
   const [selectedReader, setSelectedReader] = useState<Profile | null>(null);
-  const [bookSearch, setBookSearch] = useState("");
-  const [bookResults, setBookResults] = useState<(BookCopy & { book?: { title: string } })[]>([]);
+  const [books, setBooks] = useState<Book[]>([]);
+  const [selectedBookId, setSelectedBookId] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [barcodeInput, setBarcodeInput] = useState("");
   const [selectedCopies, setSelectedCopies] = useState<(BookCopy & { book?: { title: string } })[]>([]);
   const [createDueDate, setCreateDueDate] = useState(() => {
     const d = new Date();
@@ -58,8 +61,14 @@ export default function BorrowReturnPage() {
     setLoading(false);
   };
 
+  const fetchBooks = async () => {
+    const { data } = await supabase.from("books").select("*").eq("status", "active").order("title");
+    setBooks(data || []);
+  };
+
   useEffect(() => {
     fetchRecords();
+    fetchBooks();
   }, [tab, page]);
 
   const searchReader = useCallback(async (query: string) => {
@@ -78,28 +87,35 @@ export default function BorrowReturnPage() {
     return () => clearTimeout(timer);
   }, [readerSearch, searchReader]);
 
-  const searchBook = useCallback(async (query: string) => {
-    if (!query.trim()) { setBookResults([]); return; }
-    const { data } = await supabase
+  const handleAddBookByTitle = async () => {
+    if (!selectedBookId) { toast.error("Chọn đầu sách"); return; }
+    const qty = parseInt(quantity) || 1;
+    const { data: copies } = await supabase
       .from("book_copies")
       .select("*, book:books(title)")
+      .eq("book_id", selectedBookId)
       .eq("status", "available")
-      .or(`barcode.ilike.%${query}%,book.title.ilike.%${query}%`)
-      .limit(10);
-    setBookResults(data || []);
-  }, []);
+      .limit(qty);
+    if (!copies || copies.length === 0) { toast.error("Không còn cuốn sách nào có sẵn"); return; }
+    const available = copies.slice(0, qty);
+    setSelectedCopies([...selectedCopies, ...available]);
+    setSelectedBookId("");
+    setQuantity("1");
+  };
 
-  useEffect(() => {
-    const timer = setTimeout(() => searchBook(bookSearch), 300);
-    return () => clearTimeout(timer);
-  }, [bookSearch, searchBook]);
-
-  const handleAddCopy = (copy: BookCopy) => {
-    if (!selectedCopies.find((c) => c.id === copy.id)) {
-      setSelectedCopies([...selectedCopies, copy]);
-    }
-    setBookSearch("");
-    setBookResults([]);
+  const handleAddCopyByBarcode = async () => {
+    const code = barcodeInput.trim();
+    if (!code) return;
+    const { data: copy } = await supabase
+      .from("book_copies")
+      .select("*, book:books(title)")
+      .eq("barcode", code)
+      .eq("status", "available")
+      .single();
+    if (!copy) { toast.error("Không tìm thấy barcode hoặc sách không có sẵn"); return; }
+    if (selectedCopies.find((c) => c.id === copy.id)) { toast.error("Sách này đã có trong danh sách"); return; }
+    setSelectedCopies([...selectedCopies, copy]);
+    setBarcodeInput("");
   };
 
   const handleRemoveCopy = (id: string) => {
@@ -319,7 +335,7 @@ export default function BorrowReturnPage() {
         </div>
       </Modal>
 
-      <Modal open={showCreateModal} onClose={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setBookSearch(""); }} title="Tạo phiếu mượn tại quầy" size="lg">
+      <Modal open={showCreateModal} onClose={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setSelectedBookId(""); setBarcodeInput(""); }} title="Tạo phiếu mượn tại quầy" size="lg">
         <div className="space-y-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Độc giả</label>
@@ -354,30 +370,45 @@ export default function BorrowReturnPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Sách</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input className="block w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none" placeholder="Tìm barcode, tên sách..." value={bookSearch} onChange={(e) => setBookSearch(e.target.value)} />
-              {bookResults.length > 0 && (
-                <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg">
-                  {bookResults.map((c) => (
-                    <button key={c.id} type="button" className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => handleAddCopy(c)}>
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{c.book?.title || "-"}</p>
-                        <p className="text-xs text-gray-500">Barcode: {c.barcode} — {c.shelf_location || "chưa có vị trí"}</p>
-                      </div>
-                      <Plus className="h-4 w-4 text-blue-500 shrink-0" />
-                    </button>
-                  ))}
-                </div>
-              )}
+            <label className="mb-1 block text-sm font-medium text-gray-700">Chọn theo đầu sách</label>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Select value={selectedBookId} onChange={(e) => setSelectedBookId(e.target.value)} options={books.map((b) => ({ value: b.id, label: `${b.title} - ${b.author}` }))} placeholder="Chọn đầu sách" />
+              </div>
+              <div className="w-20 shrink-0">
+                <Input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} min={1} placeholder="SL" />
+              </div>
+              <Button type="button" variant="outline" onClick={handleAddBookByTitle}>
+                <Plus className="h-4 w-4" />
+              </Button>
             </div>
-            {selectedCopies.length > 0 && (
-              <div className="mt-2 space-y-1">
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Hoặc nhập Barcode</label>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Input
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddCopyByBarcode(); } }}
+                  placeholder="Quét hoặc nhập barcode, Enter để xác nhận"
+                />
+              </div>
+              <Button type="button" variant="outline" onClick={handleAddCopyByBarcode}>
+                <Barcode className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {selectedCopies.length > 0 && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Danh sách mượn ({selectedCopies.length} cuốn)</label>
+              <div className="space-y-1 max-h-40 overflow-y-auto">
                 {selectedCopies.map((c) => (
                   <div key={c.id} className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">{c.book?.title || "-"}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{c.book?.title || "-"}</p>
                       <p className="text-xs text-gray-500">{c.barcode}</p>
                     </div>
                     <Button variant="ghost" size="sm" onClick={() => handleRemoveCopy(c.id)}>
@@ -386,13 +417,13 @@ export default function BorrowReturnPage() {
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           <Input id="dueDate" label="Hạn trả" type="date" value={createDueDate} onChange={(e) => setCreateDueDate(e.target.value)} />
 
           <div className="flex justify-end gap-3">
-            <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setBookSearch(""); }}>Hủy</Button>
+            <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setSelectedBookId(""); setBarcodeInput(""); }}>Hủy</Button>
             <Button loading={creating} onClick={handleCreateBorrow} disabled={!selectedReader || selectedCopies.length === 0}>
               <CheckCircle className="mr-2 h-4 w-4" /> Xác nhận mượn
             </Button>
