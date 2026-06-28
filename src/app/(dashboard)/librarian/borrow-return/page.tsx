@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,9 +9,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { Table } from "@/components/ui/table";
 import { Pagination } from "@/components/shared/pagination";
-import type { BorrowRecord } from "@/types";
+import type { BorrowRecord, Profile, BookCopy } from "@/types";
 import { formatDate } from "@/lib/utils";
-import { Scan, BookOpen, CheckCircle } from "lucide-react";
+import { Scan, BookOpen, CheckCircle, Plus, Search, X, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function BorrowReturnPage() {
@@ -22,6 +22,19 @@ export default function BorrowReturnPage() {
   const [total, setTotal] = useState(0);
   const [showScanModal, setShowScanModal] = useState(false);
   const [scanCode, setScanCode] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [readerSearch, setReaderSearch] = useState("");
+  const [readerResults, setReaderResults] = useState<Profile[]>([]);
+  const [selectedReader, setSelectedReader] = useState<Profile | null>(null);
+  const [bookSearch, setBookSearch] = useState("");
+  const [bookResults, setBookResults] = useState<(BookCopy & { book?: { title: string } })[]>([]);
+  const [selectedCopies, setSelectedCopies] = useState<(BookCopy & { book?: { title: string } })[]>([]);
+  const [createDueDate, setCreateDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().split("T")[0];
+  });
+  const [creating, setCreating] = useState(false);
   const pageSize = 10;
   const supabase = createClient();
 
@@ -48,6 +61,96 @@ export default function BorrowReturnPage() {
   useEffect(() => {
     fetchRecords();
   }, [tab, page]);
+
+  const searchReader = useCallback(async (query: string) => {
+    if (!query.trim()) { setReaderResults([]); return; }
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .or(`full_name.ilike.%${query}%,email.ilike.%${query}%,employee_code.ilike.%${query}%`)
+      .eq("role", "reader")
+      .limit(10);
+    setReaderResults(data || []);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchReader(readerSearch), 300);
+    return () => clearTimeout(timer);
+  }, [readerSearch, searchReader]);
+
+  const searchBook = useCallback(async (query: string) => {
+    if (!query.trim()) { setBookResults([]); return; }
+    const { data } = await supabase
+      .from("book_copies")
+      .select("*, book:books(title)")
+      .eq("status", "available")
+      .or(`barcode.ilike.%${query}%,book.title.ilike.%${query}%`)
+      .limit(10);
+    setBookResults(data || []);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchBook(bookSearch), 300);
+    return () => clearTimeout(timer);
+  }, [bookSearch, searchBook]);
+
+  const handleAddCopy = (copy: BookCopy) => {
+    if (!selectedCopies.find((c) => c.id === copy.id)) {
+      setSelectedCopies([...selectedCopies, copy]);
+    }
+    setBookSearch("");
+    setBookResults([]);
+  };
+
+  const handleRemoveCopy = (id: string) => {
+    setSelectedCopies(selectedCopies.filter((c) => c.id !== id));
+  };
+
+  const handleCreateBorrow = async () => {
+    if (!selectedReader) { toast.error("Chọn độc giả"); return; }
+    if (selectedCopies.length === 0) { toast.error("Chọn ít nhất một cuốn sách"); return; }
+
+    const { data: profile } = await supabase.auth.getUser();
+    const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", profile.user!.id).single();
+    if (!librarian) { toast.error("Không xác định thủ thư"); return; }
+
+    setCreating(true);
+
+    const { data: record, error } = await supabase.from("borrow_records").insert({
+      reader_id: selectedReader.id,
+      librarian_id: librarian.id,
+      borrow_date: new Date().toISOString().split("T")[0],
+      due_date: createDueDate,
+      status: "active",
+      source: "counter",
+    }).select().single();
+
+    if (error) { toast.error("Lỗi: " + error.message); setCreating(false); return; }
+
+    const detailsData = selectedCopies.map((c) => ({
+      borrow_record_id: record.id,
+      book_copy_id: c.id,
+      due_date: createDueDate,
+      status: "active",
+    }));
+
+    const { error: detailsError } = await supabase.from("borrow_details").insert(detailsData);
+    if (detailsError) { toast.error("Lỗi: " + detailsError.message); setCreating(false); return; }
+
+    const { error: copiesError } = await supabase
+      .from("book_copies")
+      .update({ status: "borrowing" })
+      .in("id", selectedCopies.map((c) => c.id));
+    if (copiesError) { toast.error("Lỗi: " + copiesError.message); setCreating(false); return; }
+
+    toast.success("Tạo phiếu mượn thành công");
+    setShowCreateModal(false);
+    setSelectedReader(null);
+    setSelectedCopies([]);
+    setReaderSearch("");
+    setCreating(false);
+    fetchRecords();
+  };
 
   const handleScanComplete = async () => {
     if (!scanCode.trim()) return;
@@ -168,9 +271,14 @@ export default function BorrowReturnPage() {
           <h1 className="text-2xl font-bold text-gray-900">Mượn / Trả sách</h1>
           <p className="text-sm text-gray-500">Xác nhận mượn/trả sách tại quầy</p>
         </div>
-        <Button onClick={() => setShowScanModal(true)}>
-          <Scan className="mr-2 h-4 w-4" /> Quét mã / Nhập mã
-        </Button>
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={() => setShowCreateModal(true)}>
+            <Plus className="mr-2 h-4 w-4" /> Tạo phiếu mượn
+          </Button>
+          <Button onClick={() => setShowScanModal(true)}>
+            <Scan className="mr-2 h-4 w-4" /> Quét mã / Nhập mã
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-2 border-b">
@@ -208,6 +316,87 @@ export default function BorrowReturnPage() {
           <Button className="w-full" onClick={handleScanComplete}>
             <CheckCircle className="mr-2 h-4 w-4" /> Xác nhận
           </Button>
+        </div>
+      </Modal>
+
+      <Modal open={showCreateModal} onClose={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setBookSearch(""); }} title="Tạo phiếu mượn tại quầy" size="lg">
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Độc giả</label>
+            {selectedReader ? (
+              <div className="flex items-center justify-between rounded-lg border bg-green-50 p-3">
+                <div>
+                  <p className="font-medium text-gray-900">{selectedReader.full_name}</p>
+                  <p className="text-sm text-gray-500">{selectedReader.email} — {selectedReader.employee_code}</p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => { setSelectedReader(null); setReaderSearch(""); }}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input className="block w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none" placeholder="Tìm theo tên, email, mã..." value={readerSearch} onChange={(e) => setReaderSearch(e.target.value)} />
+                {readerResults.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg">
+                    {readerResults.map((r) => (
+                      <button key={r.id} type="button" className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => setSelectedReader(r)}>
+                        <div>
+                          <p className="font-medium text-gray-900">{r.full_name}</p>
+                          <p className="text-xs text-gray-500">{r.email} — {r.employee_code}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Sách</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input className="block w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none" placeholder="Tìm barcode, tên sách..." value={bookSearch} onChange={(e) => setBookSearch(e.target.value)} />
+              {bookResults.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg">
+                  {bookResults.map((c) => (
+                    <button key={c.id} type="button" className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => handleAddCopy(c)}>
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{c.book?.title || "-"}</p>
+                        <p className="text-xs text-gray-500">Barcode: {c.barcode} — {c.shelf_location || "chưa có vị trí"}</p>
+                      </div>
+                      <Plus className="h-4 w-4 text-blue-500 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {selectedCopies.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {selectedCopies.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">{c.book?.title || "-"}</p>
+                      <p className="text-xs text-gray-500">{c.barcode}</p>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => handleRemoveCopy(c.id)}>
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Input id="dueDate" label="Hạn trả" type="date" value={createDueDate} onChange={(e) => setCreateDueDate(e.target.value)} />
+
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setBookSearch(""); }}>Hủy</Button>
+            <Button loading={creating} onClick={handleCreateBorrow} disabled={!selectedReader || selectedCopies.length === 0}>
+              <CheckCircle className="mr-2 h-4 w-4" /> Xác nhận mượn
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>
