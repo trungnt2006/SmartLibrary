@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
@@ -27,8 +26,8 @@ export default function BorrowReturnPage() {
   const [readerSearch, setReaderSearch] = useState("");
   const [readerResults, setReaderResults] = useState<Profile[]>([]);
   const [selectedReader, setSelectedReader] = useState<Profile | null>(null);
-  const [books, setBooks] = useState<Book[]>([]);
-  const [selectedBookId, setSelectedBookId] = useState("");
+  const [bookSearch, setBookSearch] = useState("");
+  const [bookResults, setBookResults] = useState<Book[]>([]);
   const [quantity, setQuantity] = useState("1");
   const [barcodeInput, setBarcodeInput] = useState("");
   const [selectedCopies, setSelectedCopies] = useState<(BookCopy & { book?: { title: string } })[]>([]);
@@ -61,15 +60,8 @@ export default function BorrowReturnPage() {
     setLoading(false);
   };
 
-  const fetchBooks = async () => {
-    const { data, error } = await supabase.from("books").select("*").eq("status", "active").order("title");
-    if (error) console.error("fetchBooks error:", error);
-    setBooks(data || []);
-  };
-
   useEffect(() => {
     fetchRecords();
-    fetchBooks();
   }, [tab, page]);
 
   const searchReader = useCallback(async (query: string) => {
@@ -88,20 +80,33 @@ export default function BorrowReturnPage() {
     return () => clearTimeout(timer);
   }, [readerSearch, searchReader]);
 
-  const handleAddBookByTitle = async () => {
-    if (!selectedBookId) { toast.error("Chọn đầu sách"); return; }
-    const qty = parseInt(quantity) || 1;
+  const searchBook = useCallback(async (query: string) => {
+    if (!query.trim()) { setBookResults([]); return; }
+    const { data } = await supabase
+      .from("books")
+      .select("*")
+      .eq("status", "active")
+      .or(`title.ilike.%${query}%,author.ilike.%${query}%`)
+      .limit(10);
+    setBookResults(data || []);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchBook(bookSearch), 300);
+    return () => clearTimeout(timer);
+  }, [bookSearch, searchBook]);
+
+  const handleSelectBook = async (book: Book, qty: number = 1) => {
     const { data: copies } = await supabase
       .from("book_copies")
       .select("*, book:books(title)")
-      .eq("book_id", selectedBookId)
+      .eq("book_id", book.id)
       .eq("status", "available")
       .limit(qty);
-    if (!copies || copies.length === 0) { toast.error("Không còn cuốn sách nào có sẵn"); return; }
-    const available = copies.slice(0, qty);
-    setSelectedCopies([...selectedCopies, ...available]);
-    setSelectedBookId("");
-    setQuantity("1");
+    if (!copies || copies.length === 0) { toast.error(`"${book.title}" không còn cuốn nào có sẵn`); return; }
+    setSelectedCopies([...selectedCopies, ...copies]);
+    setBookSearch("");
+    setBookResults([]);
   };
 
   const handleAddCopyByBarcode = async () => {
@@ -336,7 +341,7 @@ export default function BorrowReturnPage() {
         </div>
       </Modal>
 
-      <Modal open={showCreateModal} onClose={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setSelectedBookId(""); setBarcodeInput(""); }} title="Tạo phiếu mượn tại quầy" size="lg">
+      <Modal open={showCreateModal} onClose={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setBookSearch(""); setBookResults([]); setBarcodeInput(""); }} title="Tạo phiếu mượn tại quầy" size="lg">
         <div className="space-y-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Độc giả</label>
@@ -371,17 +376,28 @@ export default function BorrowReturnPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Chọn theo đầu sách</label>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Tìm theo tên sách / tác giả</label>
             <div className="flex gap-2">
-              <div className="flex-1">
-                <Select value={selectedBookId} onChange={(e) => setSelectedBookId(e.target.value)} options={books.map((b) => ({ value: b.id, label: `${b.title} - ${b.author}` }))} placeholder="Chọn đầu sách" />
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input className="block w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none" placeholder="Nhập tên sách hoặc tác giả..." value={bookSearch} onChange={(e) => setBookSearch(e.target.value)} />
+                {bookResults.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg max-h-48 overflow-y-auto">
+                    {bookResults.map((b) => (
+                      <button key={b.id} type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => handleSelectBook(b, parseInt(quantity) || 1)}>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 truncate">{b.title}</p>
+                          <p className="text-xs text-gray-500">{b.author}</p>
+                        </div>
+                        <Plus className="ml-2 h-4 w-4 shrink-0 text-blue-500" />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="w-20 shrink-0">
                 <Input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} min={1} placeholder="SL" />
               </div>
-              <Button type="button" variant="outline" onClick={handleAddBookByTitle}>
-                <Plus className="h-4 w-4" />
-              </Button>
             </div>
           </div>
 
@@ -424,7 +440,7 @@ export default function BorrowReturnPage() {
           <Input id="dueDate" label="Hạn trả" type="date" value={createDueDate} onChange={(e) => setCreateDueDate(e.target.value)} />
 
           <div className="flex justify-end gap-3">
-            <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setSelectedBookId(""); setBarcodeInput(""); }}>Hủy</Button>
+            <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setBookSearch(""); setBookResults([]); setBarcodeInput(""); }}>Hủy</Button>
             <Button loading={creating} onClick={handleCreateBorrow} disabled={!selectedReader || selectedCopies.length === 0}>
               <CheckCircle className="mr-2 h-4 w-4" /> Xác nhận mượn
             </Button>
