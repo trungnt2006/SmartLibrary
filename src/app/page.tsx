@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Library, Users, BarChart3, ArrowRight, Shield, Search, BookMarked, TrendingUp, Award, Activity } from "lucide-react";
+import { BookOpen, Library, Users, BarChart3, ArrowRight, Shield, Search, BookMarked, Activity } from "lucide-react";
 
 const features = [
   { icon: BookOpen, title: "Quản lý kho sách", desc: "Theo dõi toàn bộ đầu sách, bản sao và tình trạng mượn/trả theo thời gian thực." },
@@ -26,38 +26,6 @@ const steps = [
   { num: "04", title: "Báo cáo & thống kê", desc: "Xem báo cáo trực quan với biểu đồ, xuất Excel và theo dõi hiệu suất." },
 ];
 
-const statsData = [
-  { value: 500, suffix: "+", label: "Đầu sách", icon: BookOpen },
-  { value: 1000, suffix: "+", label: "Độc giả", icon: Users },
-  { value: 5000, suffix: "+", label: "Lượt mượn", icon: TrendingUp },
-  { value: 99, suffix: "%", label: "Hài lòng", icon: Award },
-];
-
-function AnimatedStat({ value, suffix, label, icon: Icon, visible }: { value: number; suffix: string; label: string; icon: any; visible: boolean }) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!visible) return;
-    let start = 0;
-    const duration = 2000;
-    const stepTime = Math.max(16, duration / value);
-    const timer = setInterval(() => {
-      start += 1;
-      if (start >= value) { setCount(value); clearInterval(timer); }
-      else setCount(start);
-    }, stepTime);
-    return () => clearInterval(timer);
-  }, [visible, value]);
-  return (
-    <div className={`flex flex-col items-center p-6 transition-all duration-700 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 to-amber-200 text-amber-800">
-        <Icon className="h-7 w-7" />
-      </div>
-      <span className="text-3xl font-extrabold text-stone-900 sm:text-4xl">{count}{suffix}</span>
-      <span className="mt-1 text-sm text-stone-500">{label}</span>
-    </div>
-  );
-}
-
 function RevealSection({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -72,17 +40,6 @@ function RevealSection({ children, className = "" }: { children: React.ReactNode
 }
 
 export default function LandingPage() {
-  const [statsVisible, setStatsVisible] = useState(false);
-  const statsRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = statsRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) { setStatsVisible(true); observer.disconnect(); } }, { threshold: 0.3 });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
       {/* Background decoration */}
@@ -142,16 +99,6 @@ export default function LandingPage() {
             Bắt đầu ngay
             <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
           </Link>
-        </div>
-      </section>
-
-      {/* Stats */}
-      <section ref={statsRef} className="relative z-10 mx-auto max-w-5xl px-6 pb-20">
-        <div className="grid grid-cols-2 gap-4 rounded-3xl border border-amber-200/40 bg-white/70 backdrop-blur-xl p-6 shadow-xl shadow-amber-900/5 sm:grid-cols-4 sm:p-8">
-          <AnimatedStat {...statsData[0]} visible={statsVisible} />
-          <AnimatedStat {...statsData[1]} visible={statsVisible} />
-          <AnimatedStat {...statsData[2]} visible={statsVisible} />
-          <AnimatedStat {...statsData[3]} visible={statsVisible} />
         </div>
       </section>
 
