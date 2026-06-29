@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { Table } from "@/components/ui/table";
@@ -389,7 +388,7 @@ export default function BorrowReturnPage() {
   const handleViewDetail = async (record: any) => {
     const { data: details } = await supabase
       .from("borrow_details")
-      .select("*, book_copy:book_copies!book_copy_id(id, barcode, price, shelf_location, book:books(title, author))")
+      .select("*, book_copy:book_copies!book_copy_id(id, barcode, price, shelf_location, status, book:books(title, author))")
       .eq("borrow_record_id", record.id)
       .order("id");
     setShowDetail({ ...record, details: details || [] });
@@ -820,7 +819,7 @@ export default function BorrowReturnPage() {
               )}
               <div>
                 <p className="text-gray-500">Trạng thái</p>
-                <Badge status={showDetail.status} />
+                <RecordStatusBadge status={showDetail.status} />
               </div>
             </div>
 
@@ -838,7 +837,7 @@ export default function BorrowReturnPage() {
                         {d.book_copy?.price ? ` · Giá: ${d.book_copy.price.toLocaleString("vi-VN")}₫` : ""}
                       </p>
                     </div>
-                    <Badge status={d.status} />
+                    <DetailStatusBadge detail={d} />
                   </div>
                 ))}
                 {(!showDetail.details || showDetail.details.length === 0) && (
@@ -865,4 +864,26 @@ export default function BorrowReturnPage() {
     setReturnSelections({});
     setCreating(false);
   }
+}
+
+function RecordStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { bg: string; text: string; label: string }> = {
+    active: { bg: "bg-blue-100", text: "text-blue-800", label: "Đang mượn" },
+    overdue: { bg: "bg-red-100", text: "text-red-800", label: "Quá hạn" },
+    returned: { bg: "bg-green-100", text: "text-green-800", label: "Đã trả" },
+  };
+  const c = map[status] || { bg: "bg-gray-100", text: "text-gray-800", label: status };
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${c.bg} ${c.text}`}>{c.label}</span>;
+}
+
+function DetailStatusBadge({ detail }: { detail: any }) {
+  const ds = detail.status;
+  const cs = detail.book_copy?.status;
+  let bg: string, text: string, label: string;
+  if (ds === "active") { bg = "bg-blue-100"; text = "text-blue-800"; label = "Đang mượn"; }
+  else if (ds === "overdue") { bg = "bg-red-100"; text = "text-red-800"; label = "Quá hạn"; }
+  else if (ds === "returned" && cs === "damaged") { bg = "bg-orange-100"; text = "text-orange-800"; label = "Hư hỏng"; }
+  else if (ds === "returned" && cs === "lost") { bg = "bg-red-100"; text = "text-red-800"; label = "Mất"; }
+  else { bg = "bg-green-100"; text = "text-green-800"; label = "Đã trả"; }
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${bg} ${text}`}>{label}</span>;
 }
