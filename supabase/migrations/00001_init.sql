@@ -48,7 +48,8 @@ insert into public.library_rules (key, value, value_type, description) values
   ('fine_per_day_overdue', '5000', 'number', 'Phạt quá hạn mỗi ngày (VNĐ)'),
   ('min_reader_age', '15', 'number', 'Tuổi độc giả tối thiểu'),
   ('request_expiry_days', '3', 'number', 'Số ngày mã mượn/trả còn hiệu lực'),
-  ('book_compensation_coefficient', '2', 'number', 'Hệ số đền bù khi mất sách (giá sách × hệ số)');
+  ('book_compensation_coefficient', '2', 'number', 'Hệ số đền bù khi mất sách (giá sách × hệ số)'),
+  ('damaged_compensation_percent', '50', 'number', 'Phần trăm giá sách bồi thường khi hư hỏng (%)');
 
 -- ============================================================
 -- CATEGORIES

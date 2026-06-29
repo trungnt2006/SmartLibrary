@@ -244,8 +244,10 @@ export default function BorrowReturnPage() {
   const calcAndCreateFines = async (details: any[], librarianId: string, readerId: string, selections: Record<string, string>) => {
     const { data: rule } = await supabase.from("library_rules").select("value").eq("key", "fine_per_day_overdue").single();
     const { data: coefRule } = await supabase.from("library_rules").select("value").eq("key", "book_compensation_coefficient").single();
+    const { data: dmgRule } = await supabase.from("library_rules").select("value").eq("key", "damaged_compensation_percent").single();
     const finePerDay = parseInt(rule?.value || "5000");
     const coef = parseFloat(coefRule?.value || "2");
+    const dmgPercent = parseInt(dmgRule?.value || "50");
     const today = new Date().toISOString().split("T")[0];
 
     const fineInserts: any[] = [];
@@ -259,7 +261,7 @@ export default function BorrowReturnPage() {
           .eq("id", d.book_copy_id)
           .single();
         const price = (copy as any)?.book?.price || 0;
-        const amount = condition === "lost" ? Math.round(price * coef) : Math.round(price * coef * 0.5);
+        const amount = condition === "lost" ? Math.round(price * coef) : Math.round(price * dmgPercent / 100);
         if (amount > 0) {
           fineInserts.push({
             reader_id: readerId,

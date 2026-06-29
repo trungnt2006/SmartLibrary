@@ -27,6 +27,7 @@ export default function RulesPage() {
     { key: "min_reader_age", value: "15", value_type: "number", description: "Tuổi độc giả tối thiểu" },
     { key: "request_expiry_days", value: "3", value_type: "number", description: "Số ngày mã mượn/trả còn hiệu lực" },
     { key: "book_compensation_coefficient", value: "2", value_type: "number", description: "Hệ số đền bù khi mất sách (giá sách × hệ số)" },
+    { key: "damaged_compensation_percent", value: "50", value_type: "number", description: "Phần trăm giá sách bồi thường khi hư hỏng (%)" },
   ];
 
   const fetchRules = async () => {
@@ -76,6 +77,7 @@ export default function RulesPage() {
     min_reader_age: { label: "Tuổi tối thiểu", icon: Users, suffix: "tuổi", gradient: "from-cyan-500 to-cyan-600" },
     request_expiry_days: { label: "Hiệu lực mã yêu cầu", icon: Hourglass, suffix: "ngày", gradient: "from-amber-500 to-amber-600" },
     book_compensation_coefficient: { label: "Hệ số đền sách", icon: Shield, suffix: "x giá sách", gradient: "from-red-500 to-red-600" },
+    damaged_compensation_percent: { label: "Bồi thường hư hỏng", icon: Shield, suffix: "% giá sách", gradient: "from-rose-500 to-rose-600" },
   };
 
   if (loading) {
