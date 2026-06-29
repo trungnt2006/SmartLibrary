@@ -11,7 +11,7 @@ import { Pagination } from "@/components/shared/pagination";
 import { Modal } from "@/components/ui/modal";
 import { formatDateTime, generateBorrowCode, generateReturnCode, generateQRPayload } from "@/lib/utils";
 import { generateQR } from "@/lib/qr";
-import { CheckCircle, XCircle, QrCode } from "lucide-react";
+import { CheckCircle, XCircle, QrCode, Zap } from "lucide-react";
 import toast from "react-hot-toast";
 import Image from "next/image";
 
@@ -59,6 +59,7 @@ export default function RequestsPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [page, setPage] = useState(1);
   const [showQR, setShowQR] = useState<{ code: string; qr: string }>({ code: "", qr: "" });
+  const [autoApprove, setAutoApprove] = useState(false);
   const pageSize = 15;
   const supabase = createClient();
 
@@ -186,6 +187,103 @@ export default function RequestsPage() {
     fetchAll();
   };
 
+  const canAutoApprove = useCallback(async (item: UnifiedRequest): Promise<string | null> => {
+    const { data: reader } = await supabase
+      .from("profiles")
+      .select("status, card_expires_at, date_of_birth")
+      .eq("id", item.reader_id)
+      .single();
+    if (!reader) return "Không tìm thấy thông tin độc giả";
+    if (reader.status === "locked") return "Độc giả đang bị khóa";
+    if (reader.card_expires_at && new Date(reader.card_expires_at) < new Date()) return "Thẻ độc giả đã hết hạn";
+
+    if (item.request_type === "borrow") {
+      const { data: rule } = await supabase.from("library_rules").select("value").eq("key", "max_borrow_books").single();
+      const maxBorrow = parseInt(rule?.value || "5");
+      const { count: reqCount } = await supabase
+        .from("borrow_request_details")
+        .select("*", { count: "exact", head: true })
+        .eq("borrow_request_id", item.id);
+      const { data: activeRecords } = await supabase
+        .from("borrow_records")
+        .select("id")
+        .eq("reader_id", item.reader_id)
+        .in("status", ["active", "overdue"]);
+      const recordIds = activeRecords?.map((r) => r.id) || [];
+      let activeCount = 0;
+      if (recordIds.length > 0) {
+        const { count } = await supabase
+          .from("borrow_details")
+          .select("*", { count: "exact", head: true })
+          .in("borrow_record_id", recordIds)
+          .eq("status", "active");
+        activeCount = count || 0;
+      }
+      if (activeCount + (reqCount || 0) > maxBorrow) return `Độc giả chỉ được mượn tối đa ${maxBorrow} cuốn (hiện mượn ${activeCount})`;
+
+      const { data: ageRule } = await supabase.from("library_rules").select("value").eq("key", "min_reader_age").single();
+      const minAge = parseInt(ageRule?.value || "0");
+      if (minAge > 0 && reader.date_of_birth) {
+        const age = Math.floor((Date.now() - new Date(reader.date_of_birth).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+        if (age < minAge) return `Độc giả chưa đủ ${minAge} tuổi`;
+      }
+    }
+
+    return null;
+  }, []);
+
+  const handleAutoApproveAll = useCallback(async () => {
+    const pending = allRequests.filter((r) => r.status === "pending");
+    if (pending.length === 0) { toast("Không có yêu cầu nào chờ duyệt"); return; }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", user!.id).single();
+    if (!librarian) { toast.error("Không xác định thủ thư"); return; }
+
+    let approved = 0, rejected = 0;
+
+    for (const item of pending) {
+      const reason = await canAutoApprove(item);
+      if (reason) {
+        const { error } = await supabase
+          .from(TABLE_MAP[item.request_type])
+          .update({
+            status: "rejected",
+            rejected_by: librarian.id,
+            rejected_at: new Date().toISOString(),
+            rejection_reason: reason,
+          })
+          .eq("id", item.id);
+        if (!error) rejected++;
+      } else {
+        const year = new Date().getFullYear();
+        const isBorrow = item.request_type === "borrow";
+        const code = isBorrow
+          ? generateBorrowCode(year, Math.floor(Math.random() * 999999))
+          : generateReturnCode(year, Math.floor(Math.random() * 999999));
+        const qrType = isBorrow ? "BRW" : "RTN";
+        const qrPayload = generateQRPayload(qrType, code);
+        const qrDataUrl = await generateQR(qrPayload);
+
+        const updateData: Record<string, any> = {
+          status: "approved",
+          approved_by: librarian.id,
+          approved_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+          qr_payload: qrPayload,
+        };
+        if (isBorrow) updateData.borrow_code = code;
+        else updateData.return_code = code;
+
+        const { error } = await supabase.from(TABLE_MAP[item.request_type]).update(updateData).eq("id", item.id);
+        if (!error) approved++;
+      }
+    }
+
+    toast.success(`Tự động duyệt: ${approved} chấp nhận, ${rejected} từ chối`);
+    fetchAll();
+  }, [allRequests, canAutoApprove, fetchAll]);
+
   const handleReject = async (item: UnifiedRequest) => {
     const reason = prompt("Lý do từ chối:");
     if (!reason) return;
@@ -289,7 +387,21 @@ export default function RequestsPage() {
             <div className="w-44">
               <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} options={STATUS_OPTIONS} />
             </div>
-            <div className="text-sm text-gray-500 ml-auto">
+            <button
+              onClick={() => {
+                setAutoApprove(!autoApprove);
+                if (!autoApprove) setTimeout(() => handleAutoApproveAll(), 0);
+              }}
+              className={`ml-auto flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
+                autoApprove
+                  ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300"
+                  : "bg-gray-50 text-gray-500 hover:bg-gray-100"
+              }`}
+            >
+              <Zap className={`h-4 w-4 ${autoApprove ? "text-blue-500" : "text-gray-400"}`} />
+              {autoApprove ? "Đang tự động duyệt" : "Tự động duyệt"}
+            </button>
+            <div className="text-sm text-gray-500">
               {allRequests.filter((r) => r.status === "pending").length} yêu cầu chưa duyệt
             </div>
           </div>
