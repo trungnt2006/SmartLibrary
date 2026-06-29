@@ -65,7 +65,7 @@ export default function InventoryPage() {
   const fetchProfile = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+    const { data } = await supabase.from("profiles").select("*").eq("auth_user_id", user.id).single();
     setProfile(data);
   };
 
