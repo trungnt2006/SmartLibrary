@@ -345,7 +345,7 @@ export default function BorrowReturnPage() {
       if (!remaining || remaining.length === 0) {
         const { error: updErr } = await supabase
           .from("borrow_records")
-          .update({ status: "returned", return_date: returnDate })
+          .update({ status: "returned" })
           .eq("id", rid);
         if (updErr) console.error("Failed to update borrow_record:", updErr);
         else console.log("Updated borrow_record to returned:", rid);
@@ -469,7 +469,7 @@ export default function BorrowReturnPage() {
       const totalDetails = await supabase.from("borrow_details").select("*", { count: "exact", head: true }).eq("borrow_record_id", request.borrow_record_id);
 
       if (allReturned.data?.length === totalDetails.count) {
-        await supabase.from("borrow_records").update({ status: "returned", return_date: returnDate }).eq("id", request.borrow_record_id);
+        await supabase.from("borrow_records").update({ status: "returned" }).eq("id", request.borrow_record_id);
       }
 
       await supabase.from("return_requests").update({ status: "completed", completed_by: librarian.id, completed_at: new Date().toISOString() }).eq("id", request.id);
