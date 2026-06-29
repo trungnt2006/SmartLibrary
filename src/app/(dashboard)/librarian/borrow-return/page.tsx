@@ -143,17 +143,22 @@ export default function BorrowReturnPage() {
   }, [returnReaderSearch, searchReturnReader]);
 
   const loadActiveDetails = async (readerId: string) => {
-    const { data: records } = await supabase
+    const { data: records, error: recErr } = await supabase
       .from("borrow_records")
-      .select("id")
+      .select("id, status")
       .eq("reader_id", readerId)
       .in("status", ["active", "overdue"]);
-    if (!records || records.length === 0) { setActiveDetails([]); return; }
-    const { data: details } = await supabase
+    if (recErr) { console.error("loadActiveDetails rec err:", recErr); setActiveDetails([]); return; }
+    if (!records || records.length === 0) { console.log("No active borrow records for reader", readerId); setActiveDetails([]); return; }
+    console.log("Found borrow records:", records);
+    const recordIds = records.map((r) => r.id);
+    const { data: details, error: detErr } = await supabase
       .from("borrow_details")
-      .select("*, borrow_record!borrow_details_borrow_record_id_fkey!inner(id, status), book_copy:book_copies!book_copy_id(id, barcode, book:books(title))")
-      .in("borrow_record_id", records.map((r) => r.id))
+      .select("*, book_copy:book_copies!book_copy_id(id, barcode, book:books(title))")
+      .in("borrow_record_id", recordIds)
       .eq("status", "active");
+    if (detErr) { console.error("loadActiveDetails det err:", detErr); setActiveDetails([]); return; }
+    console.log("Found borrow details:", details);
     setActiveDetails(details || []);
   };
 
