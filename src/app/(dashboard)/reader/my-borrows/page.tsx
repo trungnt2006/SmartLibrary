@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table } from "@/components/ui/table";
 import { Pagination } from "@/components/shared/pagination";
@@ -61,7 +60,16 @@ export default function MyBorrowsPage() {
     },
     { key: "borrow_date", header: "Ngày mượn", render: (item: any) => formatDate(item.borrow_date) },
     { key: "due_date", header: "Hạn trả", render: (item: any) => formatDate(item.due_date) },
-    { key: "status", header: "Trạng thái", render: (item: any) => <Badge status={item.status} /> },
+    { key: "status", header: "Trạng thái", render: (item: any) => {
+      const s = item.status;
+      const map: Record<string, { bg: string; text: string; label: string }> = {
+        active: { bg: "bg-blue-100", text: "text-blue-800", label: "Đang mượn" },
+        overdue: { bg: "bg-red-100", text: "text-red-800", label: "Quá hạn" },
+        returned: { bg: "bg-green-100", text: "text-green-800", label: "Đã trả" },
+      };
+      const c = map[s] || { bg: "bg-gray-100", text: "text-gray-800", label: s };
+      return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${c.bg} ${c.text}`}>{c.label}</span>;
+    } },
     {
       key: "return_date",
       header: "Ngày trả",
