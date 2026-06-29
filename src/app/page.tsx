@@ -120,15 +120,13 @@ export default function LandingPage() {
       {showAnnouncement && announcements.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/30" onClick={() => setShowAnnouncement(false)} />
-          <div className="relative z-10 mx-4 w-full max-w-lg rounded-xl bg-white shadow-xl animate-scale-in text-left">
-            <div className="p-6">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-md">
-                  <Megaphone className="h-6 w-6" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900">{announcements[0].title}</h3>
+          <div className="relative z-10 mx-4 w-full max-w-lg rounded-xl bg-white shadow-xl animate-scale-in">
+            <div className="text-center p-6">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-md">
+                <Megaphone className="h-7 w-7" />
               </div>
-              <div className="text-sm text-gray-600 leading-relaxed space-y-1 [&_a]:text-blue-600 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5" dangerouslySetInnerHTML={{ __html: announcements[0].content }} />
+              <h3 className="text-lg font-semibold text-gray-900">{announcements[0].title}</h3>
+              <div className="mt-2 text-sm text-gray-600 leading-relaxed text-left [&_a]:text-blue-600 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5" dangerouslySetInnerHTML={{ __html: announcements[0].content }} />
               <button
                 onClick={() => setShowAnnouncement(false)}
                 className="mt-5 inline-flex items-center rounded-xl bg-gradient-to-r from-amber-700 to-amber-800 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-900/20 transition-all hover:from-amber-800 hover:to-amber-900 active:scale-[0.98]"
