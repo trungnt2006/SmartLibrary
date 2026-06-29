@@ -144,6 +144,31 @@ export default function AuditsPage() {
     toast.success("Đã cập nhật trạng thái thực tế");
   };
 
+  const handleMatchAll = async (auditId: string, details: any[]) => {
+    const unmatched = details.filter((d: any) => !d.actual_status);
+    if (unmatched.length === 0) { toast("Tất cả đã được kiểm tra"); return; }
+
+    const updates = unmatched.map((d: any) => ({
+      id: d.id,
+      actual_status: d.expected_status,
+    }));
+
+    const { error } = await supabase
+      .from("inventory_audit_details")
+      .upsert(updates, { onConflict: "id" });
+
+    if (error) { toast.error("Lỗi cập nhật: " + error.message); return; }
+
+    setShowDetail((prev: any) => ({
+      ...prev,
+      details: prev.details.map((d: any) =>
+        !d.actual_status ? { ...d, actual_status: d.expected_status } : d
+      ),
+    }));
+
+    toast.success(`Đã đánh dấu ${unmatched.length} bản sao là khớp`);
+  };
+
   const handleComplete = async (auditId: string) => {
     const { error } = await supabase
       .from("inventory_audits")
@@ -218,6 +243,7 @@ export default function AuditsPage() {
           <AuditDetailView
             audit={showDetail}
             onUpdateStatus={handleUpdateStatus}
+            onMatchAll={handleMatchAll}
             onComplete={handleComplete}
             onClose={() => setShowDetail(null)}
           />
@@ -255,11 +281,13 @@ function CreateAuditForm({ onSave, onCancel }: { onSave: (note: string) => void;
 function AuditDetailView({
   audit,
   onUpdateStatus,
+  onMatchAll,
   onComplete,
   onClose,
 }: {
   audit: any;
   onUpdateStatus: (detailId: string, status: string) => Promise<void>;
+  onMatchAll: (auditId: string, details: any[]) => Promise<void>;
   onComplete: (auditId: string) => Promise<void>;
   onClose: () => void;
 }) {
@@ -344,12 +372,14 @@ function AuditDetailView({
         </div>
       )}
 
-      <Table
-        columns={columns}
-        data={audit.details}
-        keyExtractor={(item: any) => item.id}
-        emptyMessage="Không có chi tiết"
-      />
+      <div className="max-h-96 overflow-y-auto">
+        <Table
+          columns={columns}
+          data={audit.details}
+          keyExtractor={(item: any) => item.id}
+          emptyMessage="Không có chi tiết"
+        />
+      </div>
 
       <div className="text-sm text-gray-500">
         Tổng số: <strong>{audit.details.length}</strong> bản sao
@@ -360,12 +390,17 @@ function AuditDetailView({
 
       <div className="flex justify-end gap-3">
         {audit.status === "in_progress" && (
-          <Button
-            onClick={() => onComplete(audit.id)}
-            disabled={!audit.details.some((d: any) => d.actual_status)}
-          >
-            <CheckCircle2 className="mr-2 h-4 w-4" /> Hoàn thành kiểm kê
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => onMatchAll(audit.id, audit.details)}>
+              Đã khớp toàn bộ
+            </Button>
+            <Button
+              onClick={() => onComplete(audit.id)}
+              disabled={!audit.details.some((d: any) => d.actual_status)}
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" /> Hoàn thành kiểm kê
+            </Button>
+          </>
         )}
       </div>
     </div>
