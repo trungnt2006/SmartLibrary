@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Smart Library
 
-## Getting Started
+Hệ thống quản lý thư viện thông minh — xây dựng với **Next.js** + **Supabase**.
 
-First, run the development server:
+## Tính năng
+
+- **3 vai trò**: Admin, Thủ thư, Độc giả
+- **Quản lý kho sách**: Đầu sách, cuốn sách, thể loại, nhập kho, kiểm kê
+- **Mượn/Trả**: Quét mã tự động, xử lý sách hư/mất, tính phạt tự động
+- **Yêu cầu**: Độc giả gửi yêu cầu mượn/trả/gia hạn, thủ thư duyệt
+- **Vi phạm**: Tính tiền phạt quá hạn, hư hỏng, mất sách
+- **Báo cáo**: Thống kê kho sách, giao dịch, vi phạm
+
+## Công nghệ
+
+- [Next.js](https://nextjs.org/) (App Router)
+- [Supabase](https://supabase.com/) (Auth, Database, Storage)
+- [Tailwind CSS v4](https://tailwindcss.com/)
+- [Lucide React](https://lucide.dev/)
+
+## Bắt đầu
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Truy cập [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Tài khoản dùng thử
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Vai trò | Email | Mật khẩu |
+|---------|-------|----------|
+| Admin | admin@ltest.app | Test@123 |
+| Thủ thư | lib1@ltest.app | Test@123 |
+| Thủ thư | lib2@ltest.app | Test@123 |
+| Độc giả | rd1@ltest.app → rd5@ltest.app | Test@123 |
 
-## Learn More
+## Seed dữ liệu
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+node --env-file=.env.local scripts/create-users-v2.cjs
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Copy nội dung `supabase/seed.sql` vào Supabase SQL Editor và chạy.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Triển khai
 
-## Deploy on Vercel
+Deploy trên [Vercel](https://vercel.com/). Biến môi trường cần có:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
