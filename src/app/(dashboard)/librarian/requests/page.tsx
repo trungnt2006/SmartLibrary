@@ -11,7 +11,7 @@ import { Pagination } from "@/components/shared/pagination";
 import { Modal } from "@/components/ui/modal";
 import { formatDateTime, generateBorrowCode, generateReturnCode, generateQRPayload } from "@/lib/utils";
 import { generateQR } from "@/lib/qr";
-import { CheckCircle, XCircle, QrCode, Zap } from "lucide-react";
+import { CheckCircle, XCircle, QrCode } from "lucide-react";
 import toast from "react-hot-toast";
 import Image from "next/image";
 
@@ -387,20 +387,26 @@ export default function RequestsPage() {
             <div className="w-44">
               <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} options={STATUS_OPTIONS} />
             </div>
-            <button
-              onClick={() => {
-                setAutoApprove(!autoApprove);
-                if (!autoApprove) setTimeout(() => handleAutoApproveAll(), 0);
-              }}
-              className={`ml-auto flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
-                autoApprove
-                  ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300"
-                  : "bg-gray-50 text-gray-500 hover:bg-gray-100"
-              }`}
-            >
-              <Zap className={`h-4 w-4 ${autoApprove ? "text-blue-500" : "text-gray-400"}`} />
-              {autoApprove ? "Đang tự động duyệt" : "Tự động duyệt"}
-            </button>
+            <label className="ml-auto flex items-center gap-2 cursor-pointer">
+              <span className="text-sm text-gray-600 select-none">Tự động duyệt</span>
+              <button
+                role="switch"
+                aria-checked={autoApprove}
+                onClick={() => {
+                  setAutoApprove(!autoApprove);
+                  if (!autoApprove) setTimeout(() => handleAutoApproveAll(), 0);
+                }}
+                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                  autoApprove ? "bg-blue-600" : "bg-gray-200"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ${
+                    autoApprove ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </label>
             <div className="text-sm text-gray-500">
               {allRequests.filter((r) => r.status === "pending").length} yêu cầu chưa duyệt
             </div>

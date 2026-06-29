@@ -11,21 +11,31 @@ import { Table } from "@/components/ui/table";
 import { Pagination } from "@/components/shared/pagination";
 import type { BorrowRecord, Profile, BookCopy } from "@/types";
 import { formatDate } from "@/lib/utils";
-import { Scan, CheckCircle, Plus, Search, X, Trash2 } from "lucide-react";
+import { Scan, CheckCircle, Plus, Search, X, Trash2, Eye, BookOpen, User, CalendarDays, Hash } from "lucide-react";
 import toast from "react-hot-toast";
+
+const STATUS_LABELS: Record<string, string> = {
+  active: "Đang mượn",
+  returned: "Đã trả",
+  overdue: "Quá hạn",
+};
 
 export default function BorrowReturnPage() {
   const [tab, setTab] = useState<"borrow" | "return">("borrow");
-  const [records, setRecords] = useState<BorrowRecord[]>([]);
+  const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [showScanModal, setShowScanModal] = useState(false);
   const [scanCode, setScanCode] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDetail, setShowDetail] = useState<any>(null);
+  const [createTab, setCreateTab] = useState<"borrow" | "return">("borrow");
+
   const [readerSearch, setReaderSearch] = useState("");
   const [readerResults, setReaderResults] = useState<Profile[]>([]);
   const [selectedReader, setSelectedReader] = useState<Profile | null>(null);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<(BookCopy & { book?: { title: string } })[]>([]);
   const [selectedCopies, setSelectedCopies] = useState<(BookCopy & { book?: { title: string } })[]>([]);
@@ -34,6 +44,13 @@ export default function BorrowReturnPage() {
     d.setDate(d.getDate() + 14);
     return d.toISOString().split("T")[0];
   });
+
+  const [returnReaderSearch, setReturnReaderSearch] = useState("");
+  const [returnReaderResults, setReturnReaderResults] = useState<Profile[]>([]);
+  const [returnReader, setReturnReader] = useState<Profile | null>(null);
+  const [activeDetails, setActiveDetails] = useState<any[]>([]);
+  const [selectedReturnIds, setSelectedReturnIds] = useState<string[]>([]);
+
   const [creating, setCreating] = useState(false);
   const pageSize = 10;
   const supabase = createClient();
@@ -42,7 +59,7 @@ export default function BorrowReturnPage() {
     setLoading(true);
     let query = supabase
       .from("borrow_records")
-      .select("*, reader:profiles!borrow_records_reader_id_fkey(full_name, email)", { count: "exact" })
+      .select("*, reader:profiles!borrow_records_reader_id_fkey(full_name, email, employee_code)", { count: "exact" })
       .order("created_at", { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
 
@@ -53,7 +70,14 @@ export default function BorrowReturnPage() {
     }
 
     const { data, count } = await query;
-    setRecords(data || []);
+    const enriched = await Promise.all((data || []).map(async (r) => {
+      const { count: bookCount } = await supabase
+        .from("borrow_details")
+        .select("*", { count: "exact", head: true })
+        .eq("borrow_record_id", r.id);
+      return { ...r, _book_count: bookCount || 0 };
+    }));
+    setRecords(enriched);
     setTotal(count || 0);
     setLoading(false);
   };
@@ -101,6 +125,37 @@ export default function BorrowReturnPage() {
     const timer = setTimeout(() => searchCopies(searchQuery), 300);
     return () => clearTimeout(timer);
   }, [searchQuery, searchCopies]);
+
+  const searchReturnReader = useCallback(async (query: string) => {
+    if (!query.trim()) { setReturnReaderResults([]); return; }
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .or(`full_name.ilike.%${query}%,email.ilike.%${query}%,employee_code.ilike.%${query}%`)
+      .eq("role", "reader")
+      .limit(10);
+    setReturnReaderResults(data || []);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchReturnReader(returnReaderSearch), 300);
+    return () => clearTimeout(timer);
+  }, [returnReaderSearch, searchReturnReader]);
+
+  const loadActiveDetails = async (readerId: string) => {
+    const { data: records } = await supabase
+      .from("borrow_records")
+      .select("id")
+      .eq("reader_id", readerId)
+      .in("status", ["active", "overdue"]);
+    if (!records || records.length === 0) { setActiveDetails([]); return; }
+    const { data: details } = await supabase
+      .from("borrow_details")
+      .select("*, borrow_record!borrow_details_borrow_record_id_fkey!inner(id, status), book_copy:book_copies!book_copy_id(id, barcode, book:books(title))")
+      .in("borrow_record_id", records.map((r) => r.id))
+      .eq("status", "active");
+    setActiveDetails(details || []);
+  };
 
   const handleAddCopy = (copy: BookCopy & { book?: { title: string } }) => {
     if (selectedCopies.find((c) => c.id === copy.id)) { toast.error("Sách này đã có trong danh sách"); return; }
@@ -181,28 +236,88 @@ export default function BorrowReturnPage() {
     fetchRecords();
   };
 
+  const handleCreateReturn = async () => {
+    if (!returnReader) { toast.error("Chọn độc giả"); return; }
+    if (selectedReturnIds.length === 0) { toast.error("Chọn ít nhất một cuốn trả"); return; }
+
+    const { data: profile } = await supabase.auth.getUser();
+    const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", profile.user!.id).single();
+    if (!librarian) { toast.error("Không xác định thủ thư"); return; }
+
+    setCreating(true);
+
+    const { error: updateError } = await supabase
+      .from("borrow_details")
+      .update({ return_date: new Date().toISOString().split("T")[0], status: "returned" })
+      .in("id", selectedReturnIds);
+
+    if (updateError) { toast.error("Lỗi: " + updateError.message); setCreating(false); return; }
+
+    const { data: returnDetails } = await supabase
+      .from("borrow_details")
+      .select("id, book_copy_id, borrow_record_id")
+      .in("id", selectedReturnIds);
+
+    if (returnDetails) {
+      const copyIds = returnDetails.map((d) => d.book_copy_id);
+      await supabase.from("book_copies").update({ status: "available" }).in("id", copyIds);
+
+      const recordIds = [...new Set(returnDetails.map((d) => d.borrow_record_id))];
+      for (const rid of recordIds) {
+        const { data: remainingActive } = await supabase
+          .from("borrow_details")
+          .select("id", { count: "exact", head: true })
+          .eq("borrow_record_id", rid)
+          .eq("status", "active");
+
+        if (!remainingActive || remainingActive.length === 0) {
+          await supabase.from("borrow_records").update({ status: "returned" }).eq("id", rid);
+        }
+      }
+    }
+
+    toast.success(`Trả ${selectedReturnIds.length} cuốn thành công`);
+    setShowCreateModal(false);
+    setReturnReader(null);
+    setReturnReaderSearch("");
+    setActiveDetails([]);
+    setSelectedReturnIds([]);
+    setCreating(false);
+    fetchRecords();
+  };
+
+  const handleViewDetail = async (record: any) => {
+    const { data: details } = await supabase
+      .from("borrow_details")
+      .select("*, book_copy:book_copies!book_copy_id(id, barcode, price, shelf_location, book:books(title, author))")
+      .eq("borrow_record_id", record.id)
+      .order("id");
+    setShowDetail({ ...record, details: details || [] });
+  };
+
   const handleScanComplete = async () => {
     if (!scanCode.trim()) return;
 
-    if (tab === "borrow") {
+    const isBorrow = scanCode.trim().startsWith("BRW");
+    const isReturn = scanCode.trim().startsWith("RTN");
+
+    if (!isBorrow && !isReturn) {
+      toast.error("Mã không hợp lệ. Phải bắt đầu bằng BRW hoặc RTN");
+      return;
+    }
+
+    if (isBorrow) {
       const { data: request } = await supabase
         .from("borrow_requests")
         .select("*, reader:profiles!borrow_requests_reader_id_fkey(*)")
         .eq("borrow_code", scanCode.trim())
         .single();
 
-      if (!request) {
-        toast.error("Không tìm thấy mã mượn");
-        return;
-      }
+      if (!request) { toast.error("Không tìm thấy mã mượn"); return; }
+      if (request.status !== "approved") { toast.error("Yêu cầu chưa được duyệt hoặc đã hết hạn"); return; }
 
-      if (request.status !== "approved") {
-        toast.error("Yêu cầu chưa được duyệt hoặc đã hết hạn");
-        return;
-      }
-
-      const { data: profile } = await supabase.auth.getUser();
-      const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", profile.user!.id).single();
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", user!.id).single();
       if (!librarian) { toast.error("Không xác định thủ thư"); return; }
 
       const dueDate = new Date();
@@ -230,13 +345,11 @@ export default function BorrowReturnPage() {
           }
           return null;
         }));
-
         const validDetails = borrowDetails.filter((d): d is NonNullable<typeof d> => d != null);
         await supabase.from("borrow_details").insert(validDetails);
       }
 
       await supabase.from("borrow_requests").update({ status: "completed", completed_by: librarian.id, completed_at: new Date().toISOString() }).eq("id", request.id);
-
       toast.success("Xác nhận cho mượn sách thành công");
     } else {
       const { data: request } = await supabase
@@ -245,18 +358,11 @@ export default function BorrowReturnPage() {
         .eq("return_code", scanCode.trim())
         .single();
 
-      if (!request) {
-        toast.error("Không tìm thấy mã trả");
-        return;
-      }
+      if (!request) { toast.error("Không tìm thấy mã trả"); return; }
+      if (request.status !== "approved") { toast.error("Yêu cầu chưa được duyệt"); return; }
 
-      if (request.status !== "approved") {
-        toast.error("Yêu cầu chưa được duyệt");
-        return;
-      }
-
-      const { data: profile } = await supabase.auth.getUser();
-      const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", profile.user!.id).single();
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", user!.id).single();
       if (!librarian) { toast.error("Không xác định thủ thư"); return; }
 
       await supabase.from("borrow_details").update({ return_date: new Date().toISOString().split("T")[0], status: "returned" }).eq("borrow_record_id", request.borrow_record_id);
@@ -276,7 +382,6 @@ export default function BorrowReturnPage() {
       }
 
       await supabase.from("return_requests").update({ status: "completed", completed_by: librarian.id, completed_at: new Date().toISOString() }).eq("id", request.id);
-
       toast.success("Xác nhận trả sách thành công");
     }
 
@@ -286,11 +391,22 @@ export default function BorrowReturnPage() {
   };
 
   const columns = [
-    { key: "reader", header: "Độc giả", render: (item: BorrowRecord) => item.reader?.full_name || "-" },
-    { key: "borrow_date", header: "Ngày mượn", render: (item: BorrowRecord) => formatDate(item.borrow_date) },
-    { key: "due_date", header: "Hạn trả", render: (item: BorrowRecord) => formatDate(item.due_date) },
-    { key: "status", header: "Trạng thái", render: (item: BorrowRecord) => <Badge status={item.status} /> },
-    { key: "source", header: "Nguồn", render: (item: BorrowRecord) => item.source === "online" ? "Online" : "Tại quầy" },
+    { key: "reader", header: "Độc giả", render: (item: any) => item.reader?.full_name || "-" },
+    { key: "borrow_date", header: "Ngày mượn", render: (item: any) => formatDate(item.borrow_date) },
+    { key: "due_date", header: "Hạn trả", render: (item: any) => formatDate(item.due_date) },
+    { key: "return_date", header: "Ngày trả", render: (item: any) => item.return_date ? formatDate(item.return_date) : "-" },
+    { key: "book_count", header: "Số cuốn", render: (item: any) => item._book_count || "-" },
+    { key: "status", header: "Trạng thái", render: (item: any) => <Badge status={item.status} /> },
+    { key: "source", header: "Nguồn", render: (item: any) => item.source === "online" ? "Online" : "Tại quầy" },
+    {
+      key: "actions",
+      header: "",
+      render: (item: any) => (
+        <Button variant="ghost" size="sm" onClick={() => handleViewDetail(item)}>
+          <Eye className="h-4 w-4" />
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -301,8 +417,8 @@ export default function BorrowReturnPage() {
           <p className="text-sm text-gray-500">Xác nhận mượn/trả sách tại quầy</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={() => setShowCreateModal(true)}>
-            <Plus className="mr-2 h-4 w-4" /> Tạo phiếu mượn
+          <Button variant="outline" onClick={() => { setCreateTab("borrow"); setShowCreateModal(true); }}>
+            <Plus className="mr-2 h-4 w-4" /> Tạo phiếu
           </Button>
           <Button onClick={() => setShowScanModal(true)}>
             <Scan className="mr-2 h-4 w-4" /> Quét mã / Nhập mã
@@ -342,96 +458,277 @@ export default function BorrowReturnPage() {
             onChange={(e) => setScanCode(e.target.value)}
             placeholder="VD: BRW-2026-xxxxxx hoặc RTN-2026-xxxxxx"
           />
+          <p className="text-xs text-gray-400">
+            Hệ thống tự động phân biệt mã mượn (BRW) và mã trả (RTN)
+          </p>
           <Button className="w-full" onClick={handleScanComplete}>
             <CheckCircle className="mr-2 h-4 w-4" /> Xác nhận
           </Button>
         </div>
       </Modal>
 
-      <Modal open={showCreateModal} onClose={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setSearchQuery(""); setSearchResults([]); }} title="Tạo phiếu mượn tại quầy" size="lg">
+      <Modal open={showCreateModal} onClose={() => { setShowCreateModal(false); resetCreateForm(); }} title="Tạo phiếu tại quầy" size="lg">
         <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Độc giả</label>
-            {selectedReader ? (
-              <div className="flex items-center justify-between rounded-lg border bg-green-50 p-3">
-                <div>
-                  <p className="font-medium text-gray-900">{selectedReader.full_name}</p>
-                  <p className="text-sm text-gray-500">{selectedReader.email} — {selectedReader.employee_code}</p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => { setSelectedReader(null); setReaderSearch(""); }}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            ) : (
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input className="block w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none" placeholder="Tìm theo tên, email, mã..." value={readerSearch} onChange={(e) => setReaderSearch(e.target.value)} />
-                {readerResults.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg">
-                    {readerResults.map((r) => (
-                      <button key={r.id} type="button" className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => setSelectedReader(r)}>
-                        <div>
-                          <p className="font-medium text-gray-900">{r.full_name}</p>
-                          <p className="text-xs text-gray-500">{r.email} — {r.employee_code}</p>
-                        </div>
-                      </button>
-                    ))}
+          <div className="flex gap-2 border-b">
+            {(["borrow", "return"] as const).map((t) => (
+              <button key={t} onClick={() => setCreateTab(t)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  createTab === t
+                    ? "border-blue-600 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {t === "borrow" ? "Cho mượn" : "Nhận trả"}
+              </button>
+            ))}
+          </div>
+
+          {createTab === "borrow" ? (
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Độc giả</label>
+                {selectedReader ? (
+                  <div className="flex items-center justify-between rounded-lg border bg-green-50 p-3">
+                    <div>
+                      <p className="font-medium text-gray-900">{selectedReader.full_name}</p>
+                      <p className="text-sm text-gray-500">{selectedReader.email} — {selectedReader.employee_code}</p>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => { setSelectedReader(null); setReaderSearch(""); }}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input className="block w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none" placeholder="Tìm theo tên, email, mã..." value={readerSearch} onChange={(e) => setReaderSearch(e.target.value)} />
+                    {readerResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg">
+                        {readerResults.map((r) => (
+                          <button key={r.id} type="button" className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => setSelectedReader(r)}>
+                            <div>
+                              <p className="font-medium text-gray-900">{r.full_name}</p>
+                              <p className="text-xs text-gray-500">{r.email} — {r.employee_code}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Tìm sách (tên, tác giả hoặc barcode)</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input className="block w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none" placeholder="Nhập tên sách, tác giả hoặc quét barcode..." value={searchQuery} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const first = searchResults[0]; if (first) handleAddCopy(first); } }} onChange={(e) => setSearchQuery(e.target.value)} />
-              {searchResults.length > 0 && (
-                <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg max-h-48 overflow-y-auto">
-                  {searchResults.map((c) => (
-                    <button key={c.id} type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => handleAddCopy(c)}>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate">{c.book?.title || "-"}</p>
-                        <p className="text-xs text-gray-500">Barcode: {c.barcode}</p>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Tìm sách (tên, tác giả hoặc barcode)</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input className="block w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none" placeholder="Nhập tên sách, tác giả hoặc quét barcode..." value={searchQuery} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const first = searchResults[0]; if (first) handleAddCopy(first); } }} onChange={(e) => setSearchQuery(e.target.value)} />
+                  {searchResults.length > 0 && (
+                    <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg max-h-48 overflow-y-auto">
+                      {searchResults.map((c) => (
+                        <button key={c.id} type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => handleAddCopy(c)}>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 truncate">{c.book?.title || "-"}</p>
+                            <p className="text-xs text-gray-500">Barcode: {c.barcode}</p>
+                          </div>
+                          <Plus className="ml-2 h-4 w-4 shrink-0 text-blue-500" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {selectedCopies.length > 0 && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Danh sách mượn ({selectedCopies.length} cuốn)</label>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {selectedCopies.map((c) => (
+                      <div key={c.id} className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{c.book?.title || "-"}</p>
+                          <p className="text-xs text-gray-500">{c.barcode}</p>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => handleRemoveCopy(c.id)}>
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
                       </div>
-                      <Plus className="ml-2 h-4 w-4 shrink-0 text-blue-500" />
-                    </button>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
 
-          {selectedCopies.length > 0 && (
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Danh sách mượn ({selectedCopies.length} cuốn)</label>
-              <div className="space-y-1 max-h-40 overflow-y-auto">
-                {selectedCopies.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{c.book?.title || "-"}</p>
-                      <p className="text-xs text-gray-500">{c.barcode}</p>
+              <Input id="dueDate" label="Hạn trả" type="date" value={createDueDate} onChange={(e) => setCreateDueDate(e.target.value)} />
+
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); resetCreateForm(); }}>Hủy</Button>
+                <Button loading={creating} onClick={handleCreateBorrow} disabled={!selectedReader || selectedCopies.length === 0}>
+                  <CheckCircle className="mr-2 h-4 w-4" /> Xác nhận mượn
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Độc giả trả sách</label>
+                {returnReader ? (
+                  <div className="flex items-center justify-between rounded-lg border bg-green-50 p-3">
+                    <div>
+                      <p className="font-medium text-gray-900">{returnReader.full_name}</p>
+                      <p className="text-sm text-gray-500">{returnReader.email} — {returnReader.employee_code}</p>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => handleRemoveCopy(c.id)}>
-                      <Trash2 className="h-4 w-4 text-red-500" />
+                    <Button variant="ghost" size="sm" onClick={() => { setReturnReader(null); setActiveDetails([]); setSelectedReturnIds([]); }}>
+                      <X className="h-4 w-4" />
                     </Button>
                   </div>
-                ))}
+                ) : (
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input className="block w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none" placeholder="Tìm theo tên, email, mã..." value={returnReaderSearch} onChange={(e) => setReturnReaderSearch(e.target.value)} />
+                    {returnReaderResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg">
+                        {returnReaderResults.map((r) => (
+                          <button key={r.id} type="button" className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setReturnReader(r); loadActiveDetails(r.id); }}>
+                            <div>
+                              <p className="font-medium text-gray-900">{r.full_name}</p>
+                              <p className="text-xs text-gray-500">{r.email} — {r.employee_code}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {returnReader && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Chọn sách trả</label>
+                  {activeDetails.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-4 text-center">Độc giả không có sách đang mượn</p>
+                  ) : (
+                    <div className="space-y-1 max-h-60 overflow-y-auto border rounded-lg divide-y">
+                      {activeDetails.map((d) => (
+                        <label key={d.id} className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 ${
+                          selectedReturnIds.includes(d.id) ? "bg-blue-50" : ""
+                        }`}>
+                          <input type="checkbox" checked={selectedReturnIds.includes(d.id)}
+                            onChange={() => {
+                              setSelectedReturnIds((prev) =>
+                                prev.includes(d.id) ? prev.filter((id) => id !== d.id) : [...prev, d.id]
+                              );
+                            }}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{d.book_copy?.book?.title || "-"}</p>
+                            <p className="text-xs text-gray-500">Barcode: {d.book_copy?.barcode} · Hạn trả: {formatDate(d.due_date)}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1">Đã chọn {selectedReturnIds.length} cuốn</p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); resetCreateForm(); }}>Hủy</Button>
+                <Button loading={creating} onClick={handleCreateReturn} disabled={!returnReader || selectedReturnIds.length === 0}>
+                  <CheckCircle className="mr-2 h-4 w-4" /> Xác nhận trả
+                </Button>
               </div>
             </div>
           )}
-
-          <Input id="dueDate" label="Hạn trả" type="date" value={createDueDate} onChange={(e) => setCreateDueDate(e.target.value)} />
-
-          <div className="flex justify-end gap-3">
-            <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); setSelectedReader(null); setSelectedCopies([]); setReaderSearch(""); setSearchQuery(""); setSearchResults([]); }}>Hủy</Button>
-            <Button loading={creating} onClick={handleCreateBorrow} disabled={!selectedReader || selectedCopies.length === 0}>
-              <CheckCircle className="mr-2 h-4 w-4" /> Xác nhận mượn
-            </Button>
-          </div>
         </div>
+      </Modal>
+
+      <Modal open={!!showDetail} onClose={() => setShowDetail(null)} title={showDetail ? "Chi tiết phiếu mượn" : ""} size="lg">
+        {showDetail && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <User className="h-4 w-4 text-gray-400" />
+                <div>
+                  <p className="text-gray-500">Độc giả</p>
+                  <p className="font-medium">{showDetail.reader?.full_name || "-"}</p>
+                  <p className="text-xs text-gray-400">{showDetail.reader?.email} {showDetail.reader?.employee_code ? `· ${showDetail.reader.employee_code}` : ""}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Hash className="h-4 w-4 text-gray-400" />
+                <div>
+                  <p className="text-gray-500">Nguồn</p>
+                  <p className="font-medium">{showDetail.source === "online" ? "Online" : "Tại quầy"}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-gray-400" />
+                <div>
+                  <p className="text-gray-500">Ngày mượn</p>
+                  <p className="font-medium">{formatDate(showDetail.borrow_date)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-gray-400" />
+                <div>
+                  <p className="text-gray-500">Hạn trả</p>
+                  <p className="font-medium">{formatDate(showDetail.due_date)}</p>
+                </div>
+              </div>
+              {showDetail.return_date && (
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4 text-gray-400" />
+                  <div>
+                    <p className="text-gray-500">Ngày trả</p>
+                    <p className="font-medium">{formatDate(showDetail.return_date)}</p>
+                  </div>
+                </div>
+              )}
+              <div>
+                <p className="text-gray-500">Trạng thái</p>
+                <Badge status={showDetail.status} />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Danh sách sách</label>
+              <div className="max-h-60 overflow-y-auto border rounded-lg divide-y">
+                {showDetail.details?.map((d: any) => (
+                  <div key={d.id} className="flex items-center gap-3 px-3 py-2">
+                    <BookOpen className="h-4 w-4 text-gray-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900">{d.book_copy?.book?.title || "-"}</p>
+                      <p className="text-xs text-gray-500">
+                        Barcode: {d.book_copy?.barcode}
+                        {d.book_copy?.shelf_location ? ` · Vị trí: ${d.book_copy.shelf_location}` : ""}
+                        {d.book_copy?.price ? ` · Giá: ${d.book_copy.price.toLocaleString("vi-VN")}₫` : ""}
+                      </p>
+                    </div>
+                    <Badge status={d.status} />
+                  </div>
+                ))}
+                {(!showDetail.details || showDetail.details.length === 0) && (
+                  <p className="text-sm text-gray-400 py-4 text-center">Không có chi tiết</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
+
+  function resetCreateForm() {
+    setSelectedReader(null);
+    setSelectedCopies([]);
+    setReaderSearch("");
+    setSearchQuery("");
+    setSearchResults([]);
+    setReturnReader(null);
+    setReturnReaderSearch("");
+    setReturnReaderResults([]);
+    setActiveDetails([]);
+    setSelectedReturnIds([]);
+    setCreating(false);
+  }
 }
