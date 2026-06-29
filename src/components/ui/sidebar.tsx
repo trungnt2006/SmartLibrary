@@ -94,11 +94,12 @@ export function Sidebar({ role }: { role: string }) {
       )}>
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-sm font-bold shadow-sm">
-              S
-            </div>
+            <img src="/favicon.png" alt="Smart Library" className="h-8 w-8" />
             <span className="text-base font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">SmartLib</span>
           </div>
+        )}
+        {collapsed && (
+          <img src="/favicon.png" alt="Smart Library" className="h-7 w-7" />
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}

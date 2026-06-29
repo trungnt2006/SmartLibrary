@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Table } from "@/components/ui/table";
 import { formatDate } from "@/lib/utils";
-import { RotateCcw, RefreshCw, BookOpen } from "lucide-react";
+import { RotateCcw, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function MyBorrowsPage() {
@@ -28,11 +29,27 @@ export default function MyBorrowsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("borrow_records")
-      .select("*, details:borrow_details(*, book_copy:book_copies(*, book:books(*)))")
+      .select("id, due_date, status, details:borrow_details(id, due_date, status, book_copy:book_copies(id, barcode, book:books(title)))")
       .eq("reader_id", profileId)
       .in("status", ["active", "overdue"])
       .order("created_at", { ascending: false });
-    setRecords(data || []);
+    const flattened: any[] = [];
+    for (const r of data || []) {
+      for (const d of r.details || []) {
+        if (d.status === "returned") continue;
+        flattened.push({
+          id: d.id,
+          detail_id: d.id,
+          record_id: r.id,
+          copy_id: (d as any).book_copy?.id,
+          record_status: r.status,
+          due_date: d.due_date,
+          book_title: (d as any).book_copy?.book?.title || "-",
+          barcode: (d as any).book_copy?.barcode || "-",
+        });
+      }
+    }
+    setRecords(flattened);
     setLoading(false);
   };
 
@@ -40,33 +57,74 @@ export default function MyBorrowsPage() {
     fetchActive();
   }, [profileId]);
 
-  const handleReturnRequest = async (recordId: string) => {
-    if (!profileId) return;
-    const { error } = await supabase.from("return_requests").insert({
+  const genCode = () => `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+  const handleReturnRequest = async (detailId: string, copyId: string) => {
+    const rec = records.find((r) => r.id === detailId);
+    if (!rec) return;
+    const { data: rr, error: rrErr } = await supabase.from("return_requests").insert({
       reader_id: profileId,
-      borrow_record_id: recordId,
+      borrow_record_id: rec.record_id,
+      return_code: genCode(),
       status: "pending",
+    }).select("id").single();
+    if (rrErr) { toast.error("Lỗi: " + rrErr.message); return; }
+    const { error } = await supabase.from("return_request_details").insert({
+      return_request_id: rr.id,
+      borrow_detail_id: detailId,
+      book_copy_id: copyId,
     });
     if (error) { toast.error("Lỗi: " + error.message); return; }
     toast.success("Đã gửi yêu cầu trả sách!");
     fetchActive();
   };
 
-  const handleRenewalRequest = async (detailId: string, recordId: string, oldDueDate: string) => {
-    if (!profileId) return;
+  const handleRenewalRequest = async (detailId: string, dueDate: string) => {
+    const rec = records.find((r) => r.id === detailId);
+    if (!rec) return;
+    const newDue = new Date(dueDate);
+    newDue.setDate(newDue.getDate() + 14);
     const { error } = await supabase.from("renewal_requests").insert({
       reader_id: profileId,
-      borrow_record_id: recordId,
+      borrow_record_id: rec.record_id,
       borrow_detail_id: detailId,
       status: "pending",
-      old_due_date: oldDueDate,
+      old_due_date: dueDate,
+      new_due_date: newDue.toISOString().split("T")[0],
     });
     if (error) { toast.error("Lỗi: " + error.message); return; }
     toast.success("Đã gửi yêu cầu gia hạn!");
     fetchActive();
   };
 
-  if (loading) return <div className="p-6 text-center text-gray-400">Đang tải...</div>;
+  const columns = [
+    { key: "book_title", header: "Sách" },
+    { key: "barcode", header: "Mã vạch" },
+    { key: "due_date", header: "Hạn trả", render: (item: any) => formatDate(item.due_date) },
+    { key: "status", header: "Trạng thái", render: (item: any) => {
+      const s = item.record_status;
+      const map: Record<string, { bg: string; text: string; label: string }> = {
+        active: { bg: "bg-blue-100", text: "text-blue-800", label: "Đang mượn" },
+        overdue: { bg: "bg-red-100", text: "text-red-800", label: "Quá hạn" },
+      };
+      const c = map[s] || { bg: "bg-gray-100", text: "text-gray-800", label: s };
+      return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${c.bg} ${c.text}`}>{c.label}</span>;
+    } },
+    {
+      key: "actions",
+      header: "",
+      render: (item: any) => (
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" className="text-blue-700 border-blue-300 hover:bg-blue-50 text-xs" onClick={() => handleReturnRequest(item.detail_id, item.copy_id)}>
+            <RotateCcw className="mr-1 h-3.5 w-3.5" /> Trả
+          </Button>
+          <Button size="sm" variant="outline" className="text-orange-700 border-orange-300 hover:bg-orange-50 text-xs" onClick={() => handleRenewalRequest(item.detail_id, item.due_date)}>
+            <RefreshCw className="mr-1 h-3.5 w-3.5" /> Gia hạn
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -74,52 +132,11 @@ export default function MyBorrowsPage() {
         <h1 className="text-2xl font-bold text-gray-900">Sách đang mượn</h1>
         <p className="text-sm text-gray-500">Các sách đang mượn và quá hạn</p>
       </div>
-
-      {records.length === 0 ? (
-        <Card>
-          <CardContent className="p-6 text-center text-gray-400">
-            <BookOpen className="mx-auto h-10 w-10 text-gray-300 mb-2" />
-            <p>Không có sách nào đang mượn</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {records.map((record) => {
-            const activeDetails = (record.details || []).filter((d: any) => d.status !== "returned");
-            const isOverdue = record.status === "overdue";
-            return (
-              <Card key={record.id} className={isOverdue ? "border-red-200" : ""}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isOverdue ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
-                      {isOverdue ? "Quá hạn" : "Đang mượn"}
-                    </span>
-                    <span className="text-xs text-gray-400">Hạn trả: {formatDate(record.due_date)}</span>
-                  </div>
-                  <div className="divide-y">
-                    {activeDetails.map((d: any) => (
-                      <div key={d.id} className="flex items-center justify-between py-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{d.book_copy?.book?.title || "-"}</p>
-                          <p className="text-xs text-gray-500">Barcode: {d.book_copy?.barcode}</p>
-                        </div>
-                        <Button variant="ghost" size="sm" onClick={() => handleRenewalRequest(d.id, record.id, d.due_date)}>
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-2 pt-2 border-t flex justify-end">
-                    <Button variant="outline" size="sm" onClick={() => handleReturnRequest(record.id)}>
-                      <RotateCcw className="mr-1 h-4 w-4" /> Yêu cầu trả
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+      <Card>
+        <CardContent className="p-0">
+          <Table columns={columns} data={records} keyExtractor={(item: any) => item.id} loading={loading} emptyMessage="Không có sách nào đang mượn" />
+        </CardContent>
+      </Card>
     </div>
   );
 }
