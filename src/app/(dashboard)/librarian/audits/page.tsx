@@ -148,16 +148,17 @@ export default function AuditsPage() {
     const unmatched = details.filter((d: any) => !d.actual_status);
     if (unmatched.length === 0) { toast("Tất cả đã được kiểm tra"); return; }
 
-    const updates = unmatched.map((d: any) => ({
-      id: d.id,
-      actual_status: d.expected_status,
-    }));
+    const results = await Promise.all(
+      unmatched.map((d) =>
+        supabase
+          .from("inventory_audit_details")
+          .update({ actual_status: d.expected_status })
+          .eq("id", d.id)
+      )
+    );
 
-    const { error } = await supabase
-      .from("inventory_audit_details")
-      .upsert(updates, { onConflict: "id" });
-
-    if (error) { toast.error("Lỗi cập nhật: " + error.message); return; }
+    const err = results.find((r) => r.error);
+    if (err) { toast.error("Lỗi cập nhật: " + err.error?.message); return; }
 
     setShowDetail((prev: any) => ({
       ...prev,
