@@ -342,7 +342,7 @@ export default function BorrowReturnPage() {
         .eq("status", "active");
 
       if (!remainingActive || remainingActive.length === 0) {
-        await supabase.from("borrow_records").update({ status: "returned" }).eq("id", rid);
+        await supabase.from("borrow_records").update({ status: "returned", return_date: returnDate }).eq("id", rid);
       }
     }
 
@@ -463,7 +463,7 @@ export default function BorrowReturnPage() {
       const totalDetails = await supabase.from("borrow_details").select("*", { count: "exact", head: true }).eq("borrow_record_id", request.borrow_record_id);
 
       if (allReturned.data?.length === totalDetails.count) {
-        await supabase.from("borrow_records").update({ status: "returned" }).eq("id", request.borrow_record_id);
+        await supabase.from("borrow_records").update({ status: "returned", return_date: returnDate }).eq("id", request.borrow_record_id);
       }
 
       await supabase.from("return_requests").update({ status: "completed", completed_by: librarian.id, completed_at: new Date().toISOString() }).eq("id", request.id);
@@ -481,7 +481,16 @@ export default function BorrowReturnPage() {
     { key: "due_date", header: "Hạn trả", render: (item: any) => formatDate(item.due_date) },
     { key: "return_date", header: "Ngày trả", render: (item: any) => item.return_date ? formatDate(item.return_date) : "-" },
     { key: "book_count", header: "Số cuốn", render: (item: any) => item._book_count || "-" },
-    { key: "status", header: "Trạng thái", render: (item: any) => <Badge status={item.status} /> },
+    { key: "status", header: "Trạng thái", render: (item: any) => {
+      const s = item.status;
+      const map: Record<string, { bg: string; text: string; label: string }> = {
+        active: { bg: "bg-blue-100", text: "text-blue-800", label: "Đang mượn" },
+        overdue: { bg: "bg-red-100", text: "text-red-800", label: "Quá hạn" },
+        returned: { bg: "bg-green-100", text: "text-green-800", label: "Đã trả" },
+      };
+      const c = map[s] || { bg: "bg-gray-100", text: "text-gray-800", label: s };
+      return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${c.bg} ${c.text}`}>{c.label}</span>;
+    } },
     { key: "source", header: "Nguồn", render: (item: any) => item.source === "online" ? "Online" : "Tại quầy" },
     {
       key: "actions",
@@ -522,7 +531,7 @@ export default function BorrowReturnPage() {
                 : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
           >
-            {t === "borrow" ? "Đang mượn" : "Đã trả"}
+            {t === "borrow" ? "Phiếu mượn" : "Phiếu trả"}
           </button>
         ))}
       </div>
