@@ -49,7 +49,7 @@ export default function BorrowReturnPage() {
   const [returnReaderResults, setReturnReaderResults] = useState<Profile[]>([]);
   const [returnReader, setReturnReader] = useState<Profile | null>(null);
   const [activeDetails, setActiveDetails] = useState<any[]>([]);
-  const [selectedReturnIds, setSelectedReturnIds] = useState<string[]>([]);
+  const [returnSelections, setReturnSelections] = useState<Record<string, string>>({});
 
   const [creating, setCreating] = useState(false);
   const pageSize = 10;
@@ -241,22 +241,45 @@ export default function BorrowReturnPage() {
     fetchRecords();
   };
 
-  const calcAndCreateFines = async (details: any[], librarianId: string, readerId: string) => {
+  const calcAndCreateFines = async (details: any[], librarianId: string, readerId: string, selections: Record<string, string>) => {
     const { data: rule } = await supabase.from("library_rules").select("value").eq("key", "fine_per_day_overdue").single();
+    const { data: coefRule } = await supabase.from("library_rules").select("value").eq("key", "book_compensation_coefficient").single();
     const finePerDay = parseInt(rule?.value || "5000");
+    const coef = parseFloat(coefRule?.value || "2");
     const today = new Date().toISOString().split("T")[0];
 
     const fineInserts: any[] = [];
     for (const d of details) {
-      if (d.due_date && d.due_date < today) {
+      const condition = selections[d.id] || "return";
+
+      if (condition === "damaged" || condition === "lost") {
+        const { data: copy } = await supabase
+          .from("book_copies")
+          .select("book:books(price)")
+          .eq("id", d.book_copy_id)
+          .single();
+        const price = (copy as any)?.book?.price || 0;
+        const amount = condition === "lost" ? Math.round(price * coef) : Math.round(price * coef * 0.5);
+        if (amount > 0) {
+          fineInserts.push({
+            reader_id: readerId,
+            borrow_detail_id: d.id,
+            book_copy_id: d.book_copy_id,
+            reason: condition,
+            amount,
+            created_by: librarianId,
+          });
+        }
+      }
+
+      if (condition === "return" && d.due_date && d.due_date < today) {
         const overdueDays = Math.ceil((new Date(today).getTime() - new Date(d.due_date).getTime()) / (1000 * 60 * 60 * 24));
-        const amount = overdueDays * finePerDay;
         fineInserts.push({
           reader_id: readerId,
           borrow_detail_id: d.id,
           book_copy_id: d.book_copy_id,
           reason: "overdue",
-          amount,
+          amount: overdueDays * finePerDay,
           created_by: librarianId,
         });
       }
@@ -265,13 +288,14 @@ export default function BorrowReturnPage() {
     if (fineInserts.length > 0) {
       const { error } = await supabase.from("fine_tickets").insert(fineInserts);
       if (error) console.error("create fines error:", error);
-      else toast.success(`Đã tạo ${fineInserts.length} phiếu phạt quá hạn`);
+      else toast.success(`Đã tạo ${fineInserts.length} phiếu phạt`);
     }
   };
 
   const handleCreateReturn = async () => {
     if (!returnReader) { toast.error("Chọn độc giả"); return; }
-    if (selectedReturnIds.length === 0) { toast.error("Chọn ít nhất một cuốn trả"); return; }
+    const selectedIds = Object.keys(returnSelections).filter((id) => returnSelections[id]);
+    if (selectedIds.length === 0) { toast.error("Chọn ít nhất một cuốn"); return; }
 
     const { data: { user } } = await supabase.auth.getUser();
     const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", user!.id).single();
@@ -282,7 +306,7 @@ export default function BorrowReturnPage() {
     const { data: fullDetails, error: fetchErr } = await supabase
       .from("borrow_details")
       .select("id, book_copy_id, borrow_record_id, due_date, status")
-      .in("id", selectedReturnIds);
+      .in("id", selectedIds);
 
     if (fetchErr) { toast.error("Lỗi: " + fetchErr.message); setCreating(false); return; }
     if (!fullDetails) { setCreating(false); return; }
@@ -292,12 +316,20 @@ export default function BorrowReturnPage() {
     const { error: updateError } = await supabase
       .from("borrow_details")
       .update({ return_date: returnDate, status: "returned" })
-      .in("id", selectedReturnIds);
+      .in("id", selectedIds);
 
     if (updateError) { toast.error("Lỗi: " + updateError.message); setCreating(false); return; }
 
-    const copyIds = fullDetails.map((d) => d.book_copy_id);
-    await supabase.from("book_copies").update({ status: "available" }).in("id", copyIds);
+    for (const d of fullDetails) {
+      const condition = returnSelections[d.id] || "return";
+      if (condition === "return") {
+        await supabase.from("book_copies").update({ status: "available" }).eq("id", d.book_copy_id);
+      } else if (condition === "damaged") {
+        await supabase.from("book_copies").update({ status: "damaged" }).eq("id", d.book_copy_id);
+      } else if (condition === "lost") {
+        await supabase.from("book_copies").update({ status: "lost" }).eq("id", d.book_copy_id);
+      }
+    }
 
     const recordIds = [...new Set(fullDetails.map((d) => d.borrow_record_id))];
     for (const rid of recordIds) {
@@ -312,14 +344,25 @@ export default function BorrowReturnPage() {
       }
     }
 
-    await calcAndCreateFines(fullDetails, librarian.id, returnReader.id);
+    await calcAndCreateFines(fullDetails, librarian.id, returnReader.id, returnSelections);
 
-    toast.success(`Trả ${selectedReturnIds.length} cuốn thành công`);
+    const summary: string[] = [];
+    const groups: Record<string, number> = {};
+    for (const id of selectedIds) {
+      const c = returnSelections[id] || "return";
+      groups[c] = (groups[c] || 0) + 1;
+    }
+    for (const [c, n] of Object.entries(groups)) {
+      const label = c === "return" ? "trả" : c === "damaged" ? "hư hỏng" : "mất";
+      summary.push(`${n} ${label}`);
+    }
+
+    toast.success(`Hoàn tất: ${summary.join(", ")}`);
     setShowCreateModal(false);
     setReturnReader(null);
     setReturnReaderSearch("");
     setActiveDetails([]);
-    setSelectedReturnIds([]);
+    setReturnSelections({});
     setCreating(false);
     fetchRecords();
   };
@@ -411,7 +454,7 @@ export default function BorrowReturnPage() {
         for (const d of details) {
           await supabase.from("book_copies").update({ status: "available" }).eq("id", d.book_copy_id);
         }
-        await calcAndCreateFines(details, librarian.id, request.reader_id);
+        await calcAndCreateFines(details, librarian.id, request.reader_id, {});
       }
 
       const allReturned = await supabase.from("borrow_details").select("*").eq("borrow_record_id", request.borrow_record_id).eq("status", "returned");
@@ -616,7 +659,7 @@ export default function BorrowReturnPage() {
                       <p className="font-medium text-gray-900">{returnReader.full_name}</p>
                       <p className="text-sm text-gray-500">{returnReader.email} — {returnReader.employee_code}</p>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => { setReturnReader(null); setActiveDetails([]); setSelectedReturnIds([]); }}>
+                    <Button variant="ghost" size="sm" onClick={() => { setReturnReader(null); setActiveDetails([]); setReturnSelections({}); }}>
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
@@ -647,33 +690,50 @@ export default function BorrowReturnPage() {
                     <p className="text-sm text-gray-400 py-4 text-center">Độc giả không có sách đang mượn</p>
                   ) : (
                     <div className="space-y-1 max-h-60 overflow-y-auto border rounded-lg divide-y">
-                      {activeDetails.map((d) => (
-                        <label key={d.id} className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 ${
-                          selectedReturnIds.includes(d.id) ? "bg-blue-50" : ""
-                        }`}>
-                          <input type="checkbox" checked={selectedReturnIds.includes(d.id)}
-                            onChange={() => {
-                              setSelectedReturnIds((prev) =>
-                                prev.includes(d.id) ? prev.filter((id) => id !== d.id) : [...prev, d.id]
-                              );
-                            }}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{d.book_copy?.book?.title || "-"}</p>
-                            <p className="text-xs text-gray-500">Barcode: {d.book_copy?.barcode} · Hạn trả: {formatDate(d.due_date)}</p>
+                      {activeDetails.map((d) => {
+                        const sel = returnSelections[d.id] || "";
+                        const isChecked = !!sel;
+                        return (
+                          <div key={d.id} className={`flex items-center gap-2 px-3 py-2 ${isChecked ? "bg-blue-50" : ""}`}>
+                            <input type="checkbox" checked={isChecked}
+                              onChange={() => {
+                                setReturnSelections((prev) => {
+                                  const next = { ...prev };
+                                  if (next[d.id]) delete next[d.id];
+                                  else next[d.id] = "return";
+                                  return next;
+                                });
+                              }}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 shrink-0"
+                            />
+                            {isChecked && (
+                              <select
+                                value={sel}
+                                onChange={(e) => setReturnSelections((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                className="text-xs rounded border border-gray-300 py-1 px-1 shrink-0"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <option value="return">Trả</option>
+                                <option value="damaged">Hư hỏng</option>
+                                <option value="lost">Mất</option>
+                              </select>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{d.book_copy?.book?.title || "-"}</p>
+                              <p className="text-xs text-gray-500">Barcode: {d.book_copy?.barcode} · Hạn trả: {formatDate(d.due_date)}</p>
+                            </div>
                           </div>
-                        </label>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
-                  <p className="text-xs text-gray-400 mt-1">Đã chọn {selectedReturnIds.length} cuốn</p>
+                  <p className="text-xs text-gray-400 mt-1">Đã chọn {Object.keys(returnSelections).length} cuốn</p>
                 </div>
               )}
 
               <div className="flex justify-end gap-3">
                 <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); resetCreateForm(); }}>Hủy</Button>
-                <Button loading={creating} onClick={handleCreateReturn} disabled={!returnReader || selectedReturnIds.length === 0}>
+                <Button loading={creating} onClick={handleCreateReturn} disabled={!returnReader || Object.keys(returnSelections).length === 0}>
                   <CheckCircle className="mr-2 h-4 w-4" /> Xác nhận trả
                 </Button>
               </div>
@@ -768,7 +828,7 @@ export default function BorrowReturnPage() {
     setReturnReaderSearch("");
     setReturnReaderResults([]);
     setActiveDetails([]);
-    setSelectedReturnIds([]);
+    setReturnSelections({});
     setCreating(false);
   }
 }
