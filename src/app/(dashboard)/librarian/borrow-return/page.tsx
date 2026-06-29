@@ -335,20 +335,20 @@ export default function BorrowReturnPage() {
 
     const recordIds = [...new Set(fullDetails.map((d) => d.borrow_record_id))];
     for (const rid of recordIds) {
-      const { count: totalCount } = await supabase
+      const { data: remaining, error: remErr } = await supabase
         .from("borrow_details")
-        .select("*", { count: "exact", head: true })
-        .eq("borrow_record_id", rid);
-
-      const { count: returnedCount } = await supabase
-        .from("borrow_details")
-        .select("*", { count: "exact", head: true })
+        .select("id")
         .eq("borrow_record_id", rid)
-        .eq("status", "returned");
+        .not("status", "eq", "returned");
 
-      console.log(`Record ${rid}: total=${totalCount} returned=${returnedCount}`);
-      if (totalCount !== null && totalCount === returnedCount) {
-        await supabase.from("borrow_records").update({ status: "returned", return_date: returnDate }).eq("id", rid);
+      console.log(`Record ${rid}: remaining=${remaining?.length||0} err=`, remErr);
+      if (!remaining || remaining.length === 0) {
+        const { error: updErr } = await supabase
+          .from("borrow_records")
+          .update({ status: "returned", return_date: returnDate })
+          .eq("id", rid);
+        if (updErr) console.error("Failed to update borrow_record:", updErr);
+        else console.log("Updated borrow_record to returned:", rid);
       }
     }
 
