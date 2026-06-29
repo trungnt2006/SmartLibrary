@@ -177,8 +177,8 @@ export default function BorrowReturnPage() {
     if (!selectedReader) { toast.error("Chọn độc giả"); return; }
     if (selectedCopies.length === 0) { toast.error("Chọn ít nhất một cuốn sách"); return; }
 
-    const { data: profile } = await supabase.auth.getUser();
-    const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", profile.user!.id).single();
+      const { data: authData } = await supabase.auth.getUser();
+      const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", authData!.user!.id).single();
     if (!librarian) { toast.error("Không xác định thủ thư"); return; }
 
     const { data: rule } = await supabase.from("library_rules").select("value").eq("key", "max_borrow_books").single();
@@ -241,45 +241,78 @@ export default function BorrowReturnPage() {
     fetchRecords();
   };
 
+  const calcAndCreateFines = async (details: any[], librarianId: string, readerId: string) => {
+    const { data: rule } = await supabase.from("library_rules").select("value").eq("key", "fine_per_day_overdue").single();
+    const finePerDay = parseInt(rule?.value || "5000");
+    const today = new Date().toISOString().split("T")[0];
+
+    const fineInserts: any[] = [];
+    for (const d of details) {
+      if (d.due_date && d.due_date < today) {
+        const overdueDays = Math.ceil((new Date(today).getTime() - new Date(d.due_date).getTime()) / (1000 * 60 * 60 * 24));
+        const amount = overdueDays * finePerDay;
+        fineInserts.push({
+          reader_id: readerId,
+          borrow_detail_id: d.id,
+          book_copy_id: d.book_copy_id,
+          reason: "overdue",
+          amount,
+          created_by: librarianId,
+        });
+      }
+    }
+
+    if (fineInserts.length > 0) {
+      const { error } = await supabase.from("fine_tickets").insert(fineInserts);
+      if (error) console.error("create fines error:", error);
+      else toast.success(`Đã tạo ${fineInserts.length} phiếu phạt quá hạn`);
+    }
+  };
+
   const handleCreateReturn = async () => {
     if (!returnReader) { toast.error("Chọn độc giả"); return; }
     if (selectedReturnIds.length === 0) { toast.error("Chọn ít nhất một cuốn trả"); return; }
 
-    const { data: profile } = await supabase.auth.getUser();
-    const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", profile.user!.id).single();
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", user!.id).single();
     if (!librarian) { toast.error("Không xác định thủ thư"); return; }
 
     setCreating(true);
 
+    const { data: fullDetails, error: fetchErr } = await supabase
+      .from("borrow_details")
+      .select("id, book_copy_id, borrow_record_id, due_date, status")
+      .in("id", selectedReturnIds);
+
+    if (fetchErr) { toast.error("Lỗi: " + fetchErr.message); setCreating(false); return; }
+    if (!fullDetails) { setCreating(false); return; }
+
+    const returnDate = new Date().toISOString().split("T")[0];
+
     const { error: updateError } = await supabase
       .from("borrow_details")
-      .update({ return_date: new Date().toISOString().split("T")[0], status: "returned" })
+      .update({ return_date: returnDate, status: "returned" })
       .in("id", selectedReturnIds);
 
     if (updateError) { toast.error("Lỗi: " + updateError.message); setCreating(false); return; }
 
-    const { data: returnDetails } = await supabase
-      .from("borrow_details")
-      .select("id, book_copy_id, borrow_record_id")
-      .in("id", selectedReturnIds);
+    const copyIds = fullDetails.map((d) => d.book_copy_id);
+    await supabase.from("book_copies").update({ status: "available" }).in("id", copyIds);
 
-    if (returnDetails) {
-      const copyIds = returnDetails.map((d) => d.book_copy_id);
-      await supabase.from("book_copies").update({ status: "available" }).in("id", copyIds);
+    const recordIds = [...new Set(fullDetails.map((d) => d.borrow_record_id))];
+    for (const rid of recordIds) {
+      const { data: remainingActive } = await supabase
+        .from("borrow_details")
+        .select("id")
+        .eq("borrow_record_id", rid)
+        .eq("status", "active");
 
-      const recordIds = [...new Set(returnDetails.map((d) => d.borrow_record_id))];
-      for (const rid of recordIds) {
-        const { data: remainingActive } = await supabase
-          .from("borrow_details")
-          .select("id", { count: "exact", head: true })
-          .eq("borrow_record_id", rid)
-          .eq("status", "active");
-
-        if (!remainingActive || remainingActive.length === 0) {
-          await supabase.from("borrow_records").update({ status: "returned" }).eq("id", rid);
-        }
+      if (!remainingActive || remainingActive.length === 0) {
+        await supabase.from("borrow_records").update({ status: "returned" }).eq("id", rid);
       }
     }
+
+    await calcAndCreateFines(fullDetails, librarian.id, returnReader.id);
 
     toast.success(`Trả ${selectedReturnIds.length} cuốn thành công`);
     setShowCreateModal(false);
@@ -366,17 +399,19 @@ export default function BorrowReturnPage() {
       if (!request) { toast.error("Không tìm thấy mã trả"); return; }
       if (request.status !== "approved") { toast.error("Yêu cầu chưa được duyệt"); return; }
 
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", user!.id).single();
+      const { data: { user: scanUser } } = await supabase.auth.getUser();
+      const { data: librarian } = await supabase.from("profiles").select("id").eq("auth_user_id", scanUser!.id).single();
       if (!librarian) { toast.error("Không xác định thủ thư"); return; }
 
-      await supabase.from("borrow_details").update({ return_date: new Date().toISOString().split("T")[0], status: "returned" }).eq("borrow_record_id", request.borrow_record_id);
+      const returnDate = new Date().toISOString().split("T")[0];
+      await supabase.from("borrow_details").update({ return_date: returnDate, status: "returned" }).eq("borrow_record_id", request.borrow_record_id);
 
-      const { data: details } = await supabase.from("borrow_details").select("book_copy_id").eq("borrow_record_id", request.borrow_record_id);
+      const { data: details } = await supabase.from("borrow_details").select("id, book_copy_id, due_date").eq("borrow_record_id", request.borrow_record_id);
       if (details) {
         for (const d of details) {
           await supabase.from("book_copies").update({ status: "available" }).eq("id", d.book_copy_id);
         }
+        await calcAndCreateFines(details, librarian.id, request.reader_id);
       }
 
       const allReturned = await supabase.from("borrow_details").select("*").eq("borrow_record_id", request.borrow_record_id).eq("status", "returned");
