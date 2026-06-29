@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { Table } from "@/components/ui/table";
 import type { Announcement } from "@/types";
-import { Plus, Edit3, Trash2, Bell, Calendar } from "lucide-react";
+import { Plus, Edit3, Trash2, Bell, Calendar, Bold, Italic, Underline, Link, List, ListOrdered } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function AnnouncementsPage() {
@@ -60,10 +60,12 @@ export default function AnnouncementsPage() {
     fetchData();
   };
 
+  const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ");
+
   const columns = [
     { key: "title", header: "Tiêu đề" },
     { key: "content", header: "Nội dung", render: (item: Announcement) => (
-      <span className="line-clamp-2 text-sm text-gray-500">{item.content}</span>
+      <span className="line-clamp-2 text-sm text-gray-500">{stripHtml(item.content)}</span>
     ) },
     { key: "status", header: "Trạng thái", render: (item: Announcement) => (
       <button onClick={() => toggleStatus(item)}>
@@ -116,29 +118,60 @@ function AnnouncementForm({ initialData, onSave, onCancel }: { initialData: Anno
   const [title, setTitle] = useState(initialData?.title || "");
   const [content, setContent] = useState(initialData?.content || "");
   const [saving, setSaving] = useState(false);
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (editorRef.current && initialData?.content) {
+      editorRef.current.innerHTML = initialData.content;
+    }
+  }, []);
+
+  const exec = (cmd: string, val?: string) => {
+    document.execCommand(cmd, false, val);
+    editorRef.current?.focus();
+  };
+
+  const addLink = () => {
+    const url = prompt("Nhập URL:");
+    if (url) exec("createLink", url);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !content.trim()) { toast.error("Vui lòng nhập đầy đủ"); return; }
+    const html = editorRef.current?.innerHTML?.trim() || "";
+    if (!title.trim() || !html || html === "<br>") { toast.error("Vui lòng nhập đầy đủ"); return; }
     setSaving(true);
-    await onSave({ title: title.trim(), content: content.trim() });
+    await onSave({ title: title.trim(), content: html });
     setSaving(false);
   };
+
+  const btnClass = "flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <Input id="announcementTitle" label="Tiêu đề" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="VD: Lịch nghỉ lễ 30/4" required />
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5" htmlFor="announcementContent">Nội dung</label>
-        <textarea
-          id="announcementContent"
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={5}
-          className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-          placeholder="Nhập nội dung thông báo..."
-          required
-        />
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Nội dung</label>
+        <div className="overflow-hidden rounded-lg border border-gray-300 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+          <div className="flex flex-wrap items-center gap-0.5 border-b border-gray-200 bg-gray-50 px-2 py-1.5">
+            <button type="button" className={btnClass} onClick={() => exec("bold")} title="In đậm"><Bold className="h-4 w-4" /></button>
+            <button type="button" className={btnClass} onClick={() => exec("italic")} title="In nghiêng"><Italic className="h-4 w-4" /></button>
+            <button type="button" className={btnClass} onClick={() => exec("underline")} title="Gạch chân"><Underline className="h-4 w-4" /></button>
+            <span className="mx-1 h-5 w-px bg-gray-200" />
+            <button type="button" className={btnClass} onClick={addLink} title="Chèn link"><Link className="h-4 w-4" /></button>
+            <span className="mx-1 h-5 w-px bg-gray-200" />
+            <button type="button" className={btnClass} onClick={() => exec("insertUnorderedList")} title="Danh sách"><List className="h-4 w-4" /></button>
+            <button type="button" className={btnClass} onClick={() => exec("insertOrderedList")} title="Danh sách số"><ListOrdered className="h-4 w-4" /></button>
+          </div>
+          <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            className="min-h-[160px] px-3 py-2 text-sm outline-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)]"
+            data-placeholder="Nhập nội dung thông báo..."
+            onInput={() => {}}
+          />
+        </div>
       </div>
       <div className="flex justify-end gap-3">
         <Button variant="outline" type="button" onClick={onCancel}>Hủy</Button>

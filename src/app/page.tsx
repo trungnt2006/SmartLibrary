@@ -125,7 +125,7 @@ export default function LandingPage() {
               <Megaphone className="h-7 w-7" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900">{announcements[0].title}</h3>
-            <p className="mt-2 text-sm text-gray-600 leading-relaxed">{announcements[0].content}</p>
+            <p className="mt-2 text-sm text-gray-600 leading-relaxed [&_a]:text-blue-600 [&_a]:underline" dangerouslySetInnerHTML={{ __html: announcements[0].content }} />
             <button
               onClick={() => setShowAnnouncement(false)}
               className="mt-6 inline-flex items-center rounded-xl bg-gradient-to-r from-amber-700 to-amber-800 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-900/20 transition-all hover:from-amber-800 hover:to-amber-900 active:scale-[0.98]"
