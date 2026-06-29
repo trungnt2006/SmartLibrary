@@ -154,7 +154,7 @@ export default function BorrowReturnPage() {
     const recordIds = records.map((r) => r.id);
     const { data: details, error: detErr } = await supabase
       .from("borrow_details")
-      .select("*, book_copy:book_copies!book_copy_id(id, barcode, book:books(title))")
+      .select("*, book_copy:book_copies(id, barcode, book:books(title))")
       .in("borrow_record_id", recordIds)
       .eq("status", "active");
     if (detErr) { console.error("loadActiveDetails det err:", detErr); setActiveDetails([]); return; }
@@ -257,10 +257,10 @@ export default function BorrowReturnPage() {
       if (condition === "damaged" || condition === "lost") {
         const { data: copy } = await supabase
           .from("book_copies")
-          .select("book:books(price)")
+          .select("price, book:books(price)")
           .eq("id", d.book_copy_id)
           .single();
-        const price = (copy as any)?.book?.price || 0;
+        const price = (copy as any)?.book?.price || (copy as any)?.price || 0;
         const amount = condition === "lost" ? Math.round(price * coef) : Math.round(price * dmgPercent / 100);
         if (amount > 0) {
           fineInserts.push({
@@ -335,13 +335,19 @@ export default function BorrowReturnPage() {
 
     const recordIds = [...new Set(fullDetails.map((d) => d.borrow_record_id))];
     for (const rid of recordIds) {
-      const { data: remainingActive } = await supabase
+      const { count: totalCount } = await supabase
         .from("borrow_details")
-        .select("id")
-        .eq("borrow_record_id", rid)
-        .eq("status", "active");
+        .select("*", { count: "exact", head: true })
+        .eq("borrow_record_id", rid);
 
-      if (!remainingActive || remainingActive.length === 0) {
+      const { count: returnedCount } = await supabase
+        .from("borrow_details")
+        .select("*", { count: "exact", head: true })
+        .eq("borrow_record_id", rid)
+        .eq("status", "returned");
+
+      console.log(`Record ${rid}: total=${totalCount} returned=${returnedCount}`);
+      if (totalCount !== null && totalCount === returnedCount) {
         await supabase.from("borrow_records").update({ status: "returned", return_date: returnDate }).eq("id", rid);
       }
     }
