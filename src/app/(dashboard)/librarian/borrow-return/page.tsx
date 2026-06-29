@@ -71,11 +71,22 @@ export default function BorrowReturnPage() {
 
     const { data, count } = await query;
     const enriched = await Promise.all((data || []).map(async (r) => {
-      const { count: bookCount } = await supabase
+      const { data: details } = await supabase
         .from("borrow_details")
-        .select("*", { count: "exact", head: true })
+        .select("return_date, book_copy_id")
         .eq("borrow_record_id", r.id);
-      return { ...r, _book_count: bookCount || 0 };
+      const returnDates = (details || []).map(d => d.return_date).filter(Boolean) as string[];
+      const maxReturnDate = returnDates.length > 0 ? returnDates.sort().reverse()[0] : null;
+      const copyIds = (details || []).map(d => d.book_copy_id).filter(Boolean) as string[];
+      let conditions: string[] = [];
+      if (copyIds.length > 0) {
+        const { data: copies } = await supabase
+          .from("book_copies")
+          .select("status")
+          .in("id", copyIds);
+        conditions = (copies || []).map(c => c.status).filter(Boolean);
+      }
+      return { ...r, _book_count: (details || []).length, _return_date: maxReturnDate, _conditions: conditions };
     }));
     setRecords(enriched);
     setTotal(count || 0);
@@ -485,17 +496,23 @@ export default function BorrowReturnPage() {
     { key: "reader", header: "Độc giả", render: (item: any) => item.reader?.full_name || "-" },
     { key: "borrow_date", header: "Ngày mượn", render: (item: any) => formatDate(item.borrow_date) },
     { key: "due_date", header: "Hạn trả", render: (item: any) => formatDate(item.due_date) },
-    { key: "return_date", header: "Ngày trả", render: (item: any) => item.return_date ? formatDate(item.return_date) : "-" },
+    { key: "return_date", header: "Ngày trả", render: (item: any) => item._return_date ? formatDate(item._return_date) : "-" },
     { key: "book_count", header: "Số cuốn", render: (item: any) => item._book_count || "-" },
     { key: "status", header: "Trạng thái", render: (item: any) => {
       const s = item.status;
+      const cond = (item._conditions || []) as string[];
+      const damagedCount = cond.filter(c => c === "damaged").length;
+      const lostCount = cond.filter(c => c === "lost").length;
       const map: Record<string, { bg: string; text: string; label: string }> = {
         active: { bg: "bg-blue-100", text: "text-blue-800", label: "Đang mượn" },
         overdue: { bg: "bg-red-100", text: "text-red-800", label: "Quá hạn" },
-        returned: { bg: "bg-green-100", text: "text-green-800", label: "Đã trả" },
+        returned: { bg: damagedCount || lostCount ? "bg-orange-100" : "bg-green-100", text: damagedCount || lostCount ? "text-orange-800" : "text-green-800", label: "Đã trả" },
       };
       const c = map[s] || { bg: "bg-gray-100", text: "text-gray-800", label: s };
-      return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${c.bg} ${c.text}`}>{c.label}</span>;
+      const parts = [c.label];
+      if (damagedCount > 0) parts.push(`${damagedCount} hư hỏng`);
+      if (lostCount > 0) parts.push(`${lostCount} mất`);
+      return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${c.bg} ${c.text}`}>{parts.join(", ")}</span>;
     } },
     { key: "source", header: "Nguồn", render: (item: any) => item.source === "online" ? "Online" : "Tại quầy" },
     {
