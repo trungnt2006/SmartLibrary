@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Library, Users, BarChart3, ArrowRight, Shield, Search, BookMarked, Activity } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { BookOpen, Library, Users, BarChart3, ArrowRight, Shield, Search, BookMarked, Activity, Bell, AlertTriangle, Info, Megaphone } from "lucide-react";
 
 const features = [
   { icon: BookOpen, title: "Quản lý kho sách", desc: "Theo dõi toàn bộ đầu sách, bản sao và tình trạng mượn/trả theo thời gian thực." },
@@ -40,6 +41,15 @@ function RevealSection({ children, className = "" }: { children: React.ReactNode
 }
 
 export default function LandingPage() {
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.from("announcements").select("title, content").eq("status", "active").order("created_at", { ascending: false }).then(({ data }) => {
+      if (data) setAnnouncements(data);
+    });
+  }, []);
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
       {/* Background decoration */}
@@ -101,6 +111,30 @@ export default function LandingPage() {
           </Link>
         </div>
       </section>
+
+      {/* Announcements ticker */}
+      {announcements.length > 0 && (
+        <section className="relative z-10 mx-auto max-w-6xl px-6 pb-6">
+          <RevealSection>
+            <div className="flex items-stretch gap-3 overflow-hidden rounded-2xl border border-amber-200/40 bg-white/80 backdrop-blur-sm">
+              <div className="flex items-center gap-2 bg-gradient-to-br from-amber-700 to-amber-800 px-4 py-3 text-white">
+                <Megaphone className="h-5 w-5" />
+                <span className="text-sm font-semibold hidden sm:inline">Thông báo</span>
+              </div>
+              <div className="flex flex-1 items-center overflow-hidden py-3">
+                <div className="animate-scroll inline-flex gap-12 whitespace-nowrap px-4">
+                  {announcements.concat(announcements).map((a, i) => (
+                    <span key={i} className="inline-flex items-center gap-2 text-sm text-stone-600">
+                      <span className="font-semibold text-stone-800">{a.title}:</span>
+                      {a.content}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </RevealSection>
+        </section>
+      )}
 
       {/* How it works */}
       <section className="relative z-10 mx-auto max-w-6xl px-6 pb-20">

@@ -21,6 +21,7 @@ import {
   Users,
   User,
   BarChart3,
+  Bell,
   type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -36,6 +37,7 @@ interface NavItem {
 
 const adminNav: NavItem[] = [
   { label: "Thủ thư", href: "/admin/librarians", icon: Shield, group: "Quản trị" },
+  { label: "Thông báo", href: "/admin/announcements", icon: Bell, group: "Quản trị" },
   { label: "Quy định", href: "/admin/rules", icon: Settings, group: "Quản trị" },
   { label: "Cá nhân", href: "/admin/profile", icon: User, group: "Quản trị" },
 ];

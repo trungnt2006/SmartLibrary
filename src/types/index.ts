@@ -241,3 +241,13 @@ export interface InventoryAuditDetail {
   actual_status: BookCopyStatus | null;
   note: string | null;
 }
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  status: "active" | "inactive";
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
