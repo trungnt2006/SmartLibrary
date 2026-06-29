@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { BookOpen, Library, Users, BarChart3, ArrowRight, Shield, Search, BookMarked, Activity, Megaphone } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
 
 const features = [
   { icon: BookOpen, title: "Quản lý kho sách", desc: "Theo dõi toàn bộ đầu sách, bản sao và tình trạng mượn/trả theo thời gian thực." },
@@ -42,11 +43,15 @@ function RevealSection({ children, className = "" }: { children: React.ReactNode
 
 export default function LandingPage() {
   const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [showAnnouncement, setShowAnnouncement] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
     supabase.from("announcements").select("title, content").eq("status", "active").order("created_at", { ascending: false }).then(({ data }) => {
-      if (data) setAnnouncements(data);
+      if (data && data.length > 0) {
+        setAnnouncements(data);
+        setShowAnnouncement(true);
+      }
     });
   }, []);
 
@@ -112,20 +117,24 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Announcements popup */}
-      {announcements.length > 0 && (
-        <section className="relative z-10 mx-auto max-w-4xl px-6 pb-4">
-          <div className="animate-drop-down rounded-2xl border border-amber-200/60 bg-gradient-to-r from-amber-50 to-orange-50 px-5 py-4 shadow-lg shadow-amber-900/5 flex items-start gap-4">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-sm">
-              <Megaphone className="h-5 w-5" />
+      {/* Announcement modal */}
+      <Modal open={showAnnouncement} onClose={() => setShowAnnouncement(false)} title="" size="md">
+        {announcements.length > 0 && (
+          <div className="text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-md">
+              <Megaphone className="h-7 w-7" />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-amber-900">{announcements[0].title}</p>
-              <p className="mt-0.5 text-sm text-amber-800/70 leading-relaxed">{announcements[0].content}</p>
-            </div>
+            <h3 className="text-lg font-semibold text-gray-900">{announcements[0].title}</h3>
+            <p className="mt-2 text-sm text-gray-600 leading-relaxed">{announcements[0].content}</p>
+            <button
+              onClick={() => setShowAnnouncement(false)}
+              className="mt-6 inline-flex items-center rounded-xl bg-gradient-to-r from-amber-700 to-amber-800 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-900/20 transition-all hover:from-amber-800 hover:to-amber-900 active:scale-[0.98]"
+            >
+              Đã hiểu
+            </button>
           </div>
-        </section>
-      )}
+        )}
+      </Modal>
 
       {/* How it works */}
       <section className="relative z-10 mx-auto max-w-6xl px-6 pb-20">
