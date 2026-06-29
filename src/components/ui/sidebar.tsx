@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ClipboardCheck,
   FileText,
+  History,
   Library,
   LogOut,
   Menu,
@@ -54,6 +55,7 @@ const readerNav: NavItem[] = [
   { label: "Tra cứu", href: "/reader/search", icon: Search, group: "Danh mục" },
   { label: "Yêu cầu", href: "/reader/requests", icon: FileText, group: "Giao dịch" },
   { label: "Đang mượn", href: "/reader/my-borrows", icon: BookOpen, group: "Giao dịch" },
+  { label: "Lịch sử", href: "/reader/history", icon: History, group: "Giao dịch" },
   { label: "Vi phạm", href: "/reader/my-fines", icon: Receipt, group: "Giao dịch" },
 ];
 
