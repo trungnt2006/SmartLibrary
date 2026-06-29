@@ -16,8 +16,8 @@ alter table public.announcements enable row level security;
 create policy "Admin full access on announcements"
 on public.announcements for all
 to authenticated
-using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'))
-with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+using (exists (select 1 from public.profiles where auth_user_id = auth.uid() and role = 'admin'))
+with check (exists (select 1 from public.profiles where auth_user_id = auth.uid() and role = 'admin'));
 
 create policy "Anyone can view active announcements"
 on public.announcements for select
