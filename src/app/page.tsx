@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { BookOpen, Library, Users, BarChart3, ArrowRight, Shield, Search, BookMarked, Activity, Bell, AlertTriangle, Info, Megaphone } from "lucide-react";
+import { BookOpen, Library, Users, BarChart3, ArrowRight, Shield, Search, BookMarked, Activity, Megaphone } from "lucide-react";
 
 const features = [
   { icon: BookOpen, title: "Quản lý kho sách", desc: "Theo dõi toàn bộ đầu sách, bản sao và tình trạng mượn/trả theo thời gian thực." },
@@ -112,27 +112,18 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Announcements ticker */}
+      {/* Announcements popup */}
       {announcements.length > 0 && (
-        <section className="relative z-10 mx-auto max-w-6xl px-6 pb-6">
-          <RevealSection>
-            <div className="flex items-stretch gap-3 overflow-hidden rounded-2xl border border-amber-200/40 bg-white/80 backdrop-blur-sm">
-              <div className="flex items-center gap-2 bg-gradient-to-br from-amber-700 to-amber-800 px-4 py-3 text-white">
-                <Megaphone className="h-5 w-5" />
-                <span className="text-sm font-semibold hidden sm:inline">Thông báo</span>
-              </div>
-              <div className="flex flex-1 items-center overflow-hidden py-3">
-                <div className="animate-scroll inline-flex gap-12 whitespace-nowrap px-4">
-                  {announcements.concat(announcements).map((a, i) => (
-                    <span key={i} className="inline-flex items-center gap-2 text-sm text-stone-600">
-                      <span className="font-semibold text-stone-800">{a.title}:</span>
-                      {a.content}
-                    </span>
-                  ))}
-                </div>
-              </div>
+        <section className="relative z-10 mx-auto max-w-4xl px-6 pb-4">
+          <div className="animate-drop-down rounded-2xl border border-amber-200/60 bg-gradient-to-r from-amber-50 to-orange-50 px-5 py-4 shadow-lg shadow-amber-900/5 flex items-start gap-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-sm">
+              <Megaphone className="h-5 w-5" />
             </div>
-          </RevealSection>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-900">{announcements[0].title}</p>
+              <p className="mt-0.5 text-sm text-amber-800/70 leading-relaxed">{announcements[0].content}</p>
+            </div>
+          </div>
         </section>
       )}
 
