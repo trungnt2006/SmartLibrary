@@ -6,6 +6,48 @@
 -- ============================================================
 
 -- ========================
+-- 0. CẬP NHẬT SCHEMA & RLS
+-- ========================
+ALTER TABLE public.payment_transactions DROP CONSTRAINT IF EXISTS payment_transactions_payment_method_check;
+ALTER TABLE public.payment_transactions ADD CONSTRAINT payment_transactions_payment_method_check
+  CHECK (payment_method IN ('cash', 'transfer', 'vnpay', 'momo'));
+
+DROP POLICY IF EXISTS "Readers can pay own fines" ON public.fine_tickets;
+CREATE POLICY "Readers can pay own fines"
+  ON public.fine_tickets FOR UPDATE
+  USING (reader_id = (SELECT id FROM public.profiles WHERE auth_user_id = auth.uid()))
+  WITH CHECK (reader_id = (SELECT id FROM public.profiles WHERE auth_user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Readers can pay own fines" ON public.payment_transactions;
+CREATE POLICY "Readers can pay own fines"
+  ON public.payment_transactions FOR INSERT
+  WITH CHECK (
+    public.current_user_role() = 'reader'
+    AND EXISTS (
+      SELECT 1 FROM public.fine_tickets
+      WHERE fine_tickets.id = fine_ticket_id
+        AND fine_tickets.reader_id = (SELECT id FROM public.profiles WHERE auth_user_id = auth.uid())
+    )
+  );
+
+DROP POLICY IF EXISTS "Readers can view own payments" ON public.payment_transactions;
+CREATE POLICY "Readers can view own payments"
+  ON public.payment_transactions FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.fine_tickets
+      WHERE fine_tickets.id = fine_ticket_id
+        AND fine_tickets.reader_id = (SELECT id FROM public.profiles WHERE auth_user_id = auth.uid())
+    )
+  );
+
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
+CREATE POLICY "Users can update own profile"
+  ON public.profiles FOR UPDATE
+  USING (auth_user_id = auth.uid())
+  WITH CHECK (auth_user_id = auth.uid());
+
+-- ========================
 -- 1. XOÁ DỮ LIỆU CŨ
 -- ========================
 DELETE FROM public.inventory_audit_details;

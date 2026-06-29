@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { formatDateTime, formatCurrency } from "@/lib/utils";
-import { DollarSign, Search, Eye } from "lucide-react";
+import { DollarSign, Search, Eye, CreditCard, CheckCircle } from "lucide-react";
+import QRCode from "qrcode";
 import toast from "react-hot-toast";
 
 const REASON_LABELS: Record<string, string> = {
@@ -27,13 +28,16 @@ export default function FinesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showDetail, setShowDetail] = useState<any>(null);
+  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const supabase = createClient();
 
   const fetchFines = async () => {
     setLoading(true);
     const { data } = await supabase
       .from("fine_tickets")
-      .select("*, reader:profiles!fine_tickets_reader_id_fkey(full_name, email, employee_code), borrow_detail:borrow_details!borrow_detail_id(book_copy:book_copies(id, barcode, book:books(title)))")
+      .select("*, reader:profiles!fine_tickets_reader_id_fkey(full_name, email, employee_code), borrow_detail:borrow_details!borrow_detail_id(due_date, return_date, status, book_copy:book_copies(id, barcode, book:books(title)))")
       .order("created_at", { ascending: false })
       .limit(500);
 
@@ -71,6 +75,14 @@ export default function FinesPage() {
     fetchFines();
   }, [search]);
 
+  useEffect(() => {
+    if (!showDetail || paymentMethod === "cash" || paymentSuccess) { setQrDataUrl(null); return; }
+    const content = `SMARTLIB-FINE-${Date.now()}`;
+    QRCode.toDataURL(content, { width: 200, margin: 2 }, (err, url) => {
+      if (!err) setQrDataUrl(url);
+    });
+  }, [showDetail, paymentMethod, paymentSuccess]);
+
   const handlePayAll = async () => {
     if (!showDetail) return;
     const unpaidIds = showDetail.fines.filter((f: any) => f.status === "unpaid").map((f: any) => f.id);
@@ -80,7 +92,7 @@ export default function FinesPage() {
     const inserts = unpaidIds.map((id: string) => ({
       fine_ticket_id: id,
       amount: showDetail.fines.find((f: any) => f.id === id)?.amount || 0,
-      payment_method: "cash",
+      payment_method: paymentMethod,
       status: "success",
       paid_at: payDate,
     }));
@@ -94,8 +106,7 @@ export default function FinesPage() {
       .in("id", unpaidIds);
     if (updErr) { toast.error("Lỗi cập nhật: " + updErr.message); return; }
 
-    toast.success(`Đã thu ${formatCurrency(showDetail.total)} từ ${showDetail.reader?.full_name}`);
-    setShowDetail(null);
+    setPaymentSuccess(true);
     fetchFines();
   };
 
@@ -135,14 +146,14 @@ export default function FinesPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <Button variant="ghost" size="sm" onClick={() => setShowDetail(g)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
                       {unpaidCount > 0 && (
                         <Button variant="primary" size="sm" onClick={() => setShowDetail(g)}>
                           <DollarSign className="mr-1 h-4 w-4" /> Thu {formatCurrency(g.total)}
                         </Button>
                       )}
+                      <Button variant="ghost" size="sm" onClick={() => setShowDetail(g)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 );
@@ -152,8 +163,8 @@ export default function FinesPage() {
         </CardContent>
       </Card>
 
-      <Modal open={!!showDetail} onClose={() => setShowDetail(null)} title={showDetail ? `Phiếu phạt - ${showDetail.reader?.full_name}` : ""} size="lg">
-        {showDetail && (
+      <Modal open={!!showDetail} onClose={() => { setShowDetail(null); setPaymentSuccess(false); setQrDataUrl(null); }} title={showDetail ? `Phiếu phạt - ${showDetail.reader?.full_name}` : ""} size="lg">
+        {showDetail && !paymentSuccess ? (
           <div className="space-y-4">
             <div className="text-sm">
               <p>Độc giả: <strong>{showDetail.reader?.full_name}</strong> ({showDetail.reader?.email})</p>
@@ -169,6 +180,9 @@ export default function FinesPage() {
                     <p className="text-xs text-gray-500">
                       {f.borrow_detail?.book_copy?.book?.title ? `Sách: ${f.borrow_detail.book_copy.book.title} · ` : ""}
                       Barcode: {f.borrow_detail?.book_copy?.barcode || "-"}
+                      {f.reason === "overdue" && f.borrow_detail?.due_date ? <><br />Quá hạn từ: {formatDateTime(f.borrow_detail.due_date)}</> : ""}
+                      {f.reason === "damaged" && <><br />Hư hỏng ngày: {f.borrow_detail?.return_date ? formatDateTime(f.borrow_detail.return_date) : formatDateTime(f.created_at)}</>}
+                      {f.reason === "lost" && <><br />Mất ngày: {f.borrow_detail?.return_date ? formatDateTime(f.borrow_detail.return_date) : formatDateTime(f.created_at)}</>}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
@@ -178,16 +192,66 @@ export default function FinesPage() {
                 </div>
               ))}
             </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setShowDetail(null)}>Đóng</Button>
-              {showDetail.fines.some((f: any) => f.status === "unpaid") && (
-                <Button onClick={handlePayAll}>
-                  <DollarSign className="mr-2 h-4 w-4" /> Thu tất cả {formatCurrency(showDetail.total)}
-                </Button>
-              )}
-            </div>
+            {showDetail.fines.some((f: any) => f.status === "unpaid") && (
+              <>
+                {paymentMethod !== "cash" && qrDataUrl ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <img src={qrDataUrl} alt="QR thanh toán" className="rounded-lg border" width={200} height={200} />
+                    <p className="text-xs text-gray-500">Quét mã để thanh toán (mã test)</p>
+                  </div>
+                ) : null}
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Hình thức thanh toán</label>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {[
+                      { value: "cash", label: "Tiền mặt", icon: DollarSign },
+                      { value: "transfer", label: "Chuyển khoản", icon: CreditCard },
+                      { value: "vnpay", label: "VNPay", icon: CreditCard },
+                      { value: "momo", label: "MoMo", icon: CreditCard },
+                    ].map((m) => {
+                      const Icon = m.icon;
+                      return (
+                        <button
+                          key={m.value}
+                          type="button"
+                          className={`flex items-center justify-start gap-2 rounded-lg border px-3 py-2 text-sm text-left transition-colors ${
+                            paymentMethod === m.value
+                              ? "border-blue-500 bg-blue-50 text-blue-700"
+                              : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                          }`}
+                          onClick={() => setPaymentMethod(m.value)}
+                        >
+                          <Icon className="h-4 w-4 shrink-0" />
+                          <span>{m.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <Button variant="outline" onClick={() => { setShowDetail(null); setPaymentSuccess(false); setQrDataUrl(null); }}>Đóng</Button>
+                  <Button onClick={handlePayAll}>
+                    <DollarSign className="mr-2 h-4 w-4" /> Thu tất cả {formatCurrency(showDetail.total)}
+                  </Button>
+                </div>
+              </>
+            )}
+            {!showDetail.fines.some((f: any) => f.status === "unpaid") && (
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => { setShowDetail(null); setPaymentSuccess(false); setQrDataUrl(null); }}>Đóng</Button>
+              </div>
+            )}
           </div>
-        )}
+        ) : showDetail && paymentSuccess ? (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <CheckCircle className="h-12 w-12 text-green-500" />
+            <p className="text-lg font-semibold text-green-700">Thu tiền thành công!</p>
+            <p className="text-sm text-gray-500">{formatCurrency(showDetail.total)} từ {showDetail.reader?.full_name}</p>
+            <Button onClick={() => { setShowDetail(null); setPaymentSuccess(false); setQrDataUrl(null); }}>
+              Đóng
+            </Button>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

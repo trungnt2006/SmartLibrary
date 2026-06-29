@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { Modal } from "@/components/ui/modal";
 import { Table } from "@/components/ui/table";
 import { Pagination } from "@/components/shared/pagination";
 import type { Book, Category } from "@/types";
-import { Plus, Search, Edit3, BookOpen } from "lucide-react";
+import { Plus, Search, Edit3, BookOpen, Camera } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function BookTitlesPage() {
@@ -76,6 +76,9 @@ export default function BookTitlesPage() {
   };
 
   const columns = [
+    { key: "cover_url", header: "Ảnh bìa", render: (item: Book) => (
+      <img src={item.cover_url || "/default-cover.png"} alt={item.title} className="h-14 w-10 rounded object-cover" />
+    ) },
     { key: "title", header: "Tên sách" },
     { key: "author", header: "Tác giả" },
     { key: "publisher", header: "NXB", render: (item: Book) => item.publisher || "-" },
@@ -133,26 +136,68 @@ function BookForm({ initialData, categories, onSave, onCancel }: { initialData: 
   const [price, setPrice] = useState(initialData?.price?.toString() || "");
   const [categoryId, setCategoryId] = useState(initialData?.category_id || "");
   const [description, setDescription] = useState(initialData?.description || "");
+  const [coverUrl, setCoverUrl] = useState(initialData?.cover_url || "");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleUploadCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { toast.error("Ảnh không được quá 2MB"); return; }
+    setUploading(true);
+    const supabase = createClient();
+    const ext = file.name.split(".").pop();
+    const filePath = `books/${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage.from("book-covers").upload(filePath, file, { upsert: true });
+    if (uploadError) { toast.error("Lỗi tải ảnh: " + uploadError.message); setUploading(false); return; }
+    const { data: urlData } = supabase.storage.from("book-covers").getPublicUrl(filePath);
+    setCoverUrl(urlData.publicUrl);
+    setUploading(false);
+    toast.success("Đã tải ảnh bìa!");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    await onSave({ title, author, publisher: publisher || null, publication_year: pubYear ? parseInt(pubYear) : null, price: parseInt(price) || 0, category_id: categoryId, description: description || null });
+    await onSave({ title, author, publisher: publisher || null, publication_year: pubYear ? parseInt(pubYear) : null, price: parseInt(price) || 0, category_id: categoryId, description: description || null, cover_url: coverUrl || null });
     setSaving(false);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <Input id="title" label="Tên sách" value={title} onChange={(e) => setTitle(e.target.value)} required />
-      <Input id="author" label="Tác giả" value={author} onChange={(e) => setAuthor(e.target.value)} required />
+      <div className="flex gap-4">
+        <div className="flex flex-col items-center gap-2">
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+            className="group relative flex h-32 w-24 overflow-hidden rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 transition-all hover:border-blue-400 hover:bg-blue-50 disabled:opacity-60">
+            {coverUrl ? (
+              <img src={coverUrl} alt="book cover" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-1">
+                <Camera className="h-8 w-8 text-gray-400 group-hover:text-blue-500" />
+                <span className="text-[10px] text-gray-400">Ảnh bìa</span>
+              </div>
+            )}
+            {uploading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              </div>
+            )}
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleUploadCover} />
+        </div>
+        <div className="flex-1 space-y-4">
+          <Input id="title" label="Tên sách" value={title} onChange={(e) => setTitle(e.target.value)} required />
+          <Input id="author" label="Tác giả" value={author} onChange={(e) => setAuthor(e.target.value)} required />
+          <Input id="publisher" label="Nhà xuất bản" value={publisher} onChange={(e) => setPublisher(e.target.value)} />
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-4">
-        <Input id="publisher" label="Nhà xuất bản" value={publisher} onChange={(e) => setPublisher(e.target.value)} />
         <Input id="pubYear" label="Năm xuất bản" type="number" value={pubYear} onChange={(e) => setPubYear(e.target.value)} />
+        <Input id="price" label="Giá (VNĐ)" type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0" />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <Select id="category" label="Danh mục" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="Chọn danh mục" required />
-        <Input id="price" label="Giá (VNĐ)" type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0" />
       </div>
       <Input id="desc" label="Mô tả" value={description} onChange={(e) => setDescription(e.target.value)} />
       <div className="flex justify-end gap-3">

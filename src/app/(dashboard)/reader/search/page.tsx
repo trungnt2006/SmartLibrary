@@ -10,33 +10,6 @@ import { Pagination } from "@/components/shared/pagination";
 import { Search, Eye, BookOpen, Minus, Plus } from "lucide-react";
 import toast from "react-hot-toast";
 
-const coverGradients = [
-  "from-blue-400 to-blue-600",
-  "from-emerald-400 to-emerald-600",
-  "from-violet-400 to-violet-600",
-  "from-orange-400 to-orange-600",
-  "from-rose-400 to-rose-600",
-  "from-cyan-400 to-cyan-600",
-  "from-amber-400 to-amber-600",
-  "from-indigo-400 to-indigo-600",
-];
-
-function getCoverGradient(title: string) {
-  let hash = 0;
-  for (let i = 0; i < title.length; i++) {
-    hash = title.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return coverGradients[Math.abs(hash) % coverGradients.length];
-}
-
-function getInitials(title: string) {
-  const words = title.split(" ").filter(Boolean);
-  if (words.length >= 2) {
-    return (words[0][0] + words[1][0]).toUpperCase();
-  }
-  return title.slice(0, 2).toUpperCase();
-}
-
 export default function SearchPage() {
   const [books, setBooks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -200,17 +173,11 @@ export default function SearchPage() {
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {books.map((book) => {
               const available = book.copies?.filter((c: any) => c.status === "available").length || 0;
-              const gradient = getCoverGradient(book.title);
-              const initials = getInitials(book.title);
 
               return (
                 <Card key={book.id} hover className="overflow-hidden">
                   <div className="flex">
-                    <div className={`flex h-auto w-24 flex-shrink-0 items-center justify-center bg-gradient-to-br ${gradient} p-3`}>
-                      <span className="text-lg font-bold text-white text-center leading-tight break-all">
-                        {initials}
-                      </span>
-                    </div>
+                    <img src={book.cover_url || "/default-cover.png"} alt={book.title} className="h-auto w-24 flex-shrink-0 object-cover" />
                     <CardContent className="flex flex-1 flex-col p-4">
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold text-gray-900 truncate">{book.title}</h3>
@@ -264,9 +231,7 @@ export default function SearchPage() {
         {showDetail && (
           <div className="space-y-5">
             <div className="flex gap-5">
-              <div className={`flex h-32 w-24 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${getCoverGradient(showDetail.title)} shadow-md`}>
-                <span className="text-2xl font-bold text-white">{getInitials(showDetail.title)}</span>
-              </div>
+              <img src={showDetail.cover_url || "/default-cover.png"} alt={showDetail.title} className="h-32 w-24 flex-shrink-0 rounded-xl object-cover shadow-md" />
               <div className="flex-1 min-w-0">
                 <h2 className="text-lg font-bold text-gray-900">{showDetail.title}</h2>
                 <p className="text-sm text-gray-500">{showDetail.author}</p>
@@ -330,9 +295,7 @@ export default function SearchPage() {
         {borrowBook && (
           <div className="space-y-5">
             <div className="flex gap-4 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 p-4 border border-blue-100">
-              <div className={`flex h-20 w-16 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${getCoverGradient(borrowBook.title)} shadow`}>
-                <span className="text-lg font-bold text-white">{getInitials(borrowBook.title)}</span>
-              </div>
+              <img src={borrowBook.cover_url || "/default-cover.png"} alt={borrowBook.title} className="h-20 w-16 flex-shrink-0 rounded-lg object-cover shadow" />
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-gray-900">{borrowBook.title}</h3>
                 <p className="text-sm text-gray-500">{borrowBook.author}</p>

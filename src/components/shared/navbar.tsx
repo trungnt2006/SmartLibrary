@@ -12,17 +12,19 @@ export function Navbar() {
 
   useEffect(() => {
     const supabase = createClient();
+    let channel: any;
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
-      supabase
-        .from("profiles")
-        .select("*")
-        .eq("auth_user_id", user.id)
-        .single()
-        .then(({ data }) => {
-          if (data) setProfile(data);
-        });
+      supabase.from("profiles").select("*").eq("auth_user_id", user.id).single().then(({ data }) => {
+        if (data) setProfile(data);
+      });
+      channel = supabase.channel("profile-changes").on("postgres_changes", {
+        event: "*", schema: "public", table: "profiles", filter: `auth_user_id=eq.${user.id}`,
+      }, (payload: any) => {
+        if (payload.new) setProfile(payload.new as Profile);
+      }).subscribe();
     });
+    return () => { channel?.unsubscribe(); };
   }, []);
 
   const handleLogout = async () => {
@@ -43,9 +45,13 @@ export function Navbar() {
         {profile && (
           <div className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-1.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-sm">
-              <span className="text-sm font-semibold">
-                {profile.full_name?.charAt(0).toUpperCase()}
-              </span>
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="" className="h-full w-full rounded-full object-cover" />
+              ) : (
+                <span className="text-sm font-semibold">
+                  {profile.full_name?.charAt(0).toUpperCase()}
+                </span>
+              )}
             </div>
             <div className="text-sm">
               <p className="font-medium text-gray-900 leading-tight">{profile.full_name}</p>

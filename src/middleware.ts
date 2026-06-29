@@ -33,6 +33,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith(p)
   );
 
+  if (pathname.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
   if (!allowed && pathname !== "/") {
     const url = request.nextUrl.clone();
     url.pathname =

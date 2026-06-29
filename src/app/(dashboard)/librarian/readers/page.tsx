@@ -224,6 +224,7 @@ function ReaderForm({ initialData, onSave, onCancel }: { initialData: Partial<Pr
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -236,6 +237,25 @@ function ReaderForm({ initialData, onSave, onCancel }: { initialData: Partial<Pr
       ...(!initialData && password ? { password } : {}),
     });
     setSaving(false);
+  };
+
+  const handleResetPassword = async () => {
+    if (!initialData?.auth_user_id) return;
+    if (!confirm("Đặt lại mật khẩu thành 'thuvien123'?")) return;
+    setResetting(true);
+    try {
+      const res = await fetch("/api/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: initialData.auth_user_id, password: "thuvien123" }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error("Lỗi: " + data.error); setResetting(false); return; }
+      toast.success("Đã đặt lại mật khẩu thành 'thuvien123'!");
+    } catch (e: any) {
+      toast.error("Lỗi kết nối: " + (e?.message || "Không thể kết nối server"));
+    }
+    setResetting(false);
   };
 
   return (
@@ -254,9 +274,18 @@ function ReaderForm({ initialData, onSave, onCancel }: { initialData: Partial<Pr
           <Input id="confirmPassword" label="Xác nhận mật khẩu" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Nhập lại mật khẩu" />
         </div>
       )}
-      <div className="flex justify-end gap-3 border-t pt-4">
-        <Button variant="outline" type="button" onClick={onCancel}>Hủy</Button>
-        <Button type="submit" loading={saving}>{initialData ? "Cập nhật" : "Cấp thẻ"}</Button>
+      <div className="flex items-center justify-between border-t pt-4">
+        <div>
+          {initialData && (
+            <Button variant="outline" type="button" loading={resetting} onClick={handleResetPassword} className="text-orange-600 border-orange-300 hover:bg-orange-50">
+              Cấp lại mật khẩu
+            </Button>
+          )}
+        </div>
+        <div className="flex gap-3">
+          <Button variant="outline" type="button" onClick={onCancel}>Hủy</Button>
+          <Button type="submit" loading={saving}>{initialData ? "Cập nhật" : "Cấp thẻ"}</Button>
+        </div>
       </div>
     </form>
   );

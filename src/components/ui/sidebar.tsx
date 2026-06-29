@@ -19,6 +19,7 @@ import {
   Settings,
   Shield,
   Users,
+  User,
   BarChart3,
   type LucideIcon,
 } from "lucide-react";
@@ -36,10 +37,12 @@ interface NavItem {
 const adminNav: NavItem[] = [
   { label: "Thủ thư", href: "/admin/librarians", icon: Shield, group: "Quản trị" },
   { label: "Quy định", href: "/admin/rules", icon: Settings, group: "Quản trị" },
+  { label: "Cá nhân", href: "/admin/profile", icon: User, group: "Quản trị" },
 ];
 
 const librarianNav: NavItem[] = [
   { label: "Độc giả", href: "/librarian/readers", icon: Users, group: "Bạn đọc" },
+  { label: "Cá nhân", href: "/librarian/profile", icon: User, group: "Bạn đọc" },
   { label: "Danh mục", href: "/librarian/books/categories", icon: BookCopy, group: "Danh mục" },
   { label: "Đầu sách", href: "/librarian/books/titles", icon: BookOpen, group: "Danh mục" },
   { label: "Cuốn sách", href: "/librarian/books/copies", icon: BookCopy, group: "Danh mục" },
@@ -53,6 +56,7 @@ const librarianNav: NavItem[] = [
 
 const readerNav: NavItem[] = [
   { label: "Tra cứu", href: "/reader/search", icon: Search, group: "Danh mục" },
+  { label: "Cá nhân", href: "/reader/profile", icon: User, group: "Danh mục" },
   { label: "Yêu cầu", href: "/reader/requests", icon: FileText, group: "Giao dịch" },
   { label: "Đang mượn", href: "/reader/my-borrows", icon: BookOpen, group: "Giao dịch" },
   { label: "Lịch sử", href: "/reader/history", icon: History, group: "Giao dịch" },

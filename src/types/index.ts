@@ -71,6 +71,7 @@ export interface Book {
   publication_year: number | null;
   description: string | null;
   price: number;
+  cover_url: string | null;
   status: "active" | "inactive";
   category?: Category;
 }
