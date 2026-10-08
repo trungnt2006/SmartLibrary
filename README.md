@@ -4,12 +4,12 @@ Hệ thống quản lý thư viện thông minh — xây dựng với **Next.js*
 
 ## Tính năng
 
-- **3 vai trò**: Admin, Thủ thư, Độc giả.
-- **Quản lý kho sách**: Đầu sách, cuốn sách, thể loại, nhập kho, kiểm kê.
-- **Mượn/Trả**: Quét mã tự động, xử lý sách hư/mất, tính phạt tự động.
-- **Yêu cầu**: Độc giả gửi yêu cầu mượn/trả/gia hạn, thủ thư duyệt.
-- **Vi phạm**: Tính tiền phạt quá hạn, hư hỏng, mất sách.
-- **Báo cáo**: Thống kê kho sách, giao dịch, vi phạm.
+- **3 vai trò**: Admin, Thủ thư, Độc giả
+- **Quản lý kho sách**: Đầu sách, cuốn sách, thể loại, nhập kho, kiểm kê
+- **Mượn/Trả**: Quét mã tự động, xử lý sách hư/mất, tính phạt tự động
+- **Yêu cầu**: Độc giả gửi yêu cầu mượn/trả/gia hạn, thủ thư duyệt
+- **Vi phạm**: Tính tiền phạt quá hạn, hư hỏng, mất sách
+- **Báo cáo**: Thống kê kho sách, giao dịch, vi phạm
 
 ## Công nghệ
 
